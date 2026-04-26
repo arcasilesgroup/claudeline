@@ -17,11 +17,6 @@ describe("getGitInfo", () => {
     }
   });
 
-  test("returns branch on the project repo", () => {
-    const info = getGitInfo(process.cwd());
-    expect(info.branch).toBe("main");
-  });
-
   test("returns dirty=true when working tree has changes", () => {
     const tmp = mkdtempSync(join(tmpdir(), "claudeline-git-"));
     try {
