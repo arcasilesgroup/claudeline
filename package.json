@@ -1,0 +1,63 @@
+{
+  "name": "@arcasilesgroup/claudeline",
+  "version": "0.1.0",
+  "description": "Cross-platform statusline for Claude Code — model, context, rate limits, effort, thinking",
+  "license": "MIT",
+  "author": "Arcasiles Group",
+  "type": "module",
+  "bin": {
+    "claudeline": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "bun build src/cli.ts --target=node --outfile=dist/cli.js --minify --banner='#!/usr/bin/env node'",
+    "build:binary": "bun build src/cli.ts --compile --outfile=dist/claudeline",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "bunx tsc --noEmit",
+    "audit": "bun audit",
+    "render": "bun src/cli.ts render",
+    "install:local": "bun src/cli.ts install",
+    "prepublishOnly": "bun test && bunx tsc --noEmit && bun run build"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "statusline",
+    "cli",
+    "anthropic",
+    "arcasiles",
+    "developer-tools",
+    "tui"
+  ],
+  "homepage": "https://github.com/arcasilesgroup/claudeline#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arcasilesgroup/claudeline.git"
+  },
+  "bugs": {
+    "url": "https://github.com/arcasilesgroup/claudeline/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.13",
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
+  }
+}

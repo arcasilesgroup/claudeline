@@ -1,0 +1,2 @@
+# gitleaks ignore file. Add commit:rule:fingerprint entries here ONLY for
+# vetted false positives (test fixtures, public sample data).
