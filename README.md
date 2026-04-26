@@ -9,12 +9,9 @@
 A cross-platform statusline for [Claude Code](https://claude.com/claude-code).
 TypeScript, single binary, zero config.
 
-```
-Opus 4.7 │ ✍️ 15% │ claudeline (main*) │ ⏱ 1h9m │ ◉ max 🧠
-
-current ●○○○○○○○○○   6% ⟳ 18:45
-weekly  ●●○○○○○○○○  18% ⟳ 1 may, 22:00
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/screenshot.png" alt="claudeline running in Claude Code: model name, context %, working directory, effort and thinking glyphs, plus 5-hour and weekly rate-limit bars" width="900" />
+</p>
 
 ## Features
 
