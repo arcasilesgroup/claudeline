@@ -1,4 +1,4 @@
-import { homedir, platform, tmpdir } from "node:os";
+import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fetchUsage } from "./api.js";
 import { loadJsonCache, saveJsonCache } from "./cache.js";
@@ -14,8 +14,8 @@ import {
 } from "./schemas.js";
 import { defaultSettingsPath, readSettingsFile } from "./settings.js";
 import { detect24Hour } from "./time.js";
-
-const VERSION = "0.1.0";
+import { VERSION } from "./version.js";
+import * as z from "zod/mini";
 
 const HELP = `claudeline ${VERSION} — cross-platform statusline for Claude Code
 
@@ -80,7 +80,7 @@ async function runRender(): Promise<number> {
 
   let parsed: StatuslineInput;
   try {
-    parsed = statuslineInputSchema.parse(JSON.parse(raw));
+    parsed = z.parse(statuslineInputSchema, JSON.parse(raw));
   } catch {
     process.stdout.write("Claude\n");
     return 0;
@@ -136,9 +136,6 @@ async function readStdin(): Promise<string> {
   }
   return Buffer.concat(chunks).toString("utf-8");
 }
-
-// Avoid unused-import noise on Windows where homedir helper might not be touched.
-void homedir;
 
 main().then(
   (code) => process.exit(code),

@@ -155,7 +155,10 @@ function adaptApiUsage(
 }
 
 function adaptApiWindow(
-  raw: { utilization?: number | undefined; resets_at?: string | undefined } | undefined,
+  raw:
+    | { utilization?: number | null | undefined; resets_at?: string | null | undefined }
+    | null
+    | undefined,
 ): RateLimitWindow | undefined {
   if (!raw || typeof raw.utilization !== "number") return undefined;
   return {
@@ -169,9 +172,7 @@ function adaptExtra(
   deps: RenderDeps,
 ): ExtraUsage | undefined {
   if (!raw?.is_enabled) return undefined;
-  const now = new Date(deps.now());
-  const nextMonthFirst = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const resetEpoch = Math.floor(nextMonthFirst.getTime() / 1000);
+  const resetEpoch = nextMonthFirstEpoch(deps.now(), deps.timeZone);
   const resetLabel =
     formatEpoch(resetEpoch, {
       style: "date",
@@ -185,4 +186,26 @@ function adaptExtra(
     limitCents: Math.round(raw.monthly_limit ?? 0),
     resetLabel,
   };
+}
+
+export function nextMonthFirstEpoch(
+  nowMs: number,
+  timeZone: string | undefined,
+): number {
+  const date = new Date(nowMs);
+  if (!timeZone) {
+    const local = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+    return Math.floor(local.getTime() / 1000);
+  }
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "numeric",
+  });
+  const parts = fmt.formatToParts(date);
+  const y = Number(parts.find((p) => p.type === "year")?.value);
+  const m = Number(parts.find((p) => p.type === "month")?.value);
+  const nextMonth = m === 12 ? 1 : m + 1;
+  const nextYear = m === 12 ? y + 1 : y;
+  return Math.floor(Date.UTC(nextYear, nextMonth - 1, 1) / 1000);
 }

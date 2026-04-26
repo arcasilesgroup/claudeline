@@ -75,7 +75,7 @@ function cleanupTime(raw: string, use24h: boolean): string {
 }
 
 export function parseIsoToEpoch(
-  value: string | number | undefined,
+  value: string | number | null | undefined,
 ): number | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;

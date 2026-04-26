@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
+import * as z from "zod/mini";
 import { credentialsFileSchema } from "./schemas.js";
 
 export interface CredentialSources {
@@ -77,8 +78,8 @@ function readCredentialsJson(path: string): string | undefined {
 function parseTokenFromBlob(blob: string): string | undefined {
   if (!blob) return undefined;
   try {
-    const parsed = credentialsFileSchema.parse(JSON.parse(blob));
-    return parsed.claudeAiOauth?.accessToken;
+    const parsed = z.parse(credentialsFileSchema, JSON.parse(blob));
+    return parsed.claudeAiOauth?.accessToken ?? undefined;
   } catch {
     return undefined;
   }

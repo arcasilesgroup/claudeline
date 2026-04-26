@@ -1,7 +1,21 @@
 import { colorForPercentage, paint, palette, RESET, style } from "./ansi.js";
 
-export function modelSegment(displayName: string | undefined): string {
-  return paint(displayName && displayName.trim() !== "" ? displayName : "Claude", palette.blue);
+// Strip C0/C1 control characters from any text we reflect from stdin
+// (model.display_name, cwd, gitBranch). Defends against escape-sequence
+// injection (terminal title spoofing, OSC-8 hyperlinks, screen wipes).
+const stripControl = (s: string): string => s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+
+// Splits on both POSIX `/` and Windows `\` so the segment renders
+// the basename regardless of the host that produced the cwd string.
+function basenameCrossPlatform(p: string): string {
+  const trimmed = p.replace(/[\/\\]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return idx === -1 ? trimmed : trimmed.slice(idx + 1);
+}
+
+export function modelSegment(displayName: string | null | undefined): string {
+  const safe = displayName && displayName.trim() !== "" ? stripControl(displayName) : "Claude";
+  return paint(safe, palette.blue);
 }
 
 export interface ContextInput {
@@ -19,7 +33,7 @@ export function contextSegment(input: ContextInput): string {
   } else if (input.windowSize > 0) {
     const used =
       input.inputTokens + input.cacheCreationTokens + input.cacheReadTokens;
-    pct = Math.floor((used * 100) / input.windowSize);
+    pct = Math.round((used * 100) / input.windowSize);
   } else {
     pct = 0;
   }
@@ -35,13 +49,13 @@ export interface DirectoryInput {
 }
 
 export function directorySegment(input: DirectoryInput): string {
-  const parts = input.cwd.split("/").filter(Boolean);
-  const name = parts.length > 0 ? parts[parts.length - 1] : input.cwd;
+  const name = stripControl(basenameCrossPlatform(input.cwd) || input.cwd);
   const prefix = input.skipPermissions ? "⚡  " : "";
-  let out = `${prefix}${paint(name ?? "", palette.cyan)}`;
+  let out = `${prefix}${paint(name, palette.cyan)}`;
   if (input.gitBranch) {
-    const dirty = input.gitDirty ? `${palette.red}*` : "";
-    out += ` ${palette.green}(${input.gitBranch}${dirty}${palette.green})${RESET}`;
+    const safeBranch = stripControl(input.gitBranch);
+    const dirtyStar = input.gitDirty ? `${palette.red}*${palette.green}` : "";
+    out += ` ${palette.green}(${safeBranch}${dirtyStar})${RESET}`;
   }
   return out;
 }

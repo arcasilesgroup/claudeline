@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderStatusline, type RenderDeps } from "../src/render.js";
+import { nextMonthFirstEpoch, renderStatusline, type RenderDeps } from "../src/render.js";
 
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
@@ -142,5 +142,66 @@ describe("renderStatusline", () => {
   test("default to Claude when no model name", async () => {
     const out = await renderStatusline({ cwd: "/p/repo" }, mockDeps());
     expect(stripAnsi(out)).toContain("Claude");
+  });
+
+  test("null fields in stdin do not collapse the line", async () => {
+    const out = await renderStatusline(
+      {
+        model: { display_name: "Opus" },
+        cwd: "/p/repo",
+        effort: { level: null },
+        thinking: { enabled: null },
+        session: { start_time: null },
+      } as never,
+      mockDeps(),
+    );
+    expect(stripAnsi(out)).toContain("Opus");
+    expect(stripAnsi(out)).toContain("repo");
+  });
+
+  test("renders extra_usage with TZ-aware reset month", async () => {
+    const out = await renderStatusline(
+      { cwd: "/p/repo" },
+      mockDeps({
+        now: () => new Date("2026-04-26T20:00:00Z").getTime(),
+        loadToken: () => "tok",
+        fetchUsage: async () => ({
+          extra_usage: {
+            is_enabled: true,
+            utilization: 25,
+            used_credits: 250,
+            monthly_limit: 1000,
+          },
+        }),
+      }),
+    );
+    const plain = stripAnsi(out);
+    expect(plain).toContain("extra");
+    expect(plain).toContain("$2.50");
+    expect(plain).toContain("$10.00");
+    expect(plain).toContain("1 may");
+  });
+});
+
+describe("nextMonthFirstEpoch", () => {
+  test("UTC midnight crossover: server in LA, user in Madrid, May 1 in TZ but Apr 30 server", () => {
+    // 2026-05-01T00:30:00Z = Apr 30 17:30 LA, May 1 02:30 Madrid
+    const ms = new Date("2026-05-01T00:30:00Z").getTime();
+    const epochMadrid = nextMonthFirstEpoch(ms, "Europe/Madrid");
+    // In Madrid it's May 1 → next month is June 1
+    expect(epochMadrid).toBe(Math.floor(Date.UTC(2026, 5, 1) / 1000));
+  });
+
+  test("December rolls into next year January", () => {
+    const ms = new Date("2026-12-15T12:00:00Z").getTime();
+    const epoch = nextMonthFirstEpoch(ms, "UTC");
+    expect(epoch).toBe(Math.floor(Date.UTC(2027, 0, 1) / 1000));
+  });
+
+  test("no timeZone falls back to server-local", () => {
+    const ms = new Date("2026-04-15T12:00:00Z").getTime();
+    const epoch = nextMonthFirstEpoch(ms, undefined);
+    const expected = new Date(2026, 4, 1); // May 1 server-local
+    expect(epoch).toBe(Math.floor(expected.getTime() / 1000));
   });
 });

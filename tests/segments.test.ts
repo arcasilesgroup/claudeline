@@ -105,6 +105,35 @@ describe("directorySegment", () => {
       ),
     ).toBe("⚡  bar");
   });
+
+  test("Windows backslash path uses last segment", () => {
+    expect(
+      stripAnsi(directorySegment({ cwd: "C:\\Users\\x\\repo" })),
+    ).toBe("repo");
+  });
+
+  test("trailing slash trimmed", () => {
+    expect(stripAnsi(directorySegment({ cwd: "/foo/bar/" }))).toBe("bar");
+  });
+
+  test("strips ANSI/control characters from cwd", () => {
+    const plain = stripAnsi(
+      directorySegment({ cwd: "/foo/\x1b]0;PWNED\x07bar" }),
+    );
+    // BEL (\x07) and ESC (\x1b) from the malicious cwd are gone.
+    expect(plain).not.toContain("\x07");
+    expect(plain).not.toContain("\x1b");
+    // The visible payload renders as literal characters (no escape effect).
+    expect(plain).toContain("PWNED");
+  });
+
+  test("strips control characters from git branch", () => {
+    const out = directorySegment({
+      cwd: "/x",
+      gitBranch: "main\x1b]8;;file:///etc/passwd\x1b\\",
+    });
+    expect(stripAnsi(out)).not.toContain("\x1b");
+  });
 });
 
 describe("sessionSegment", () => {

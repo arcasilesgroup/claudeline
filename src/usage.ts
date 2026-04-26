@@ -1,5 +1,6 @@
 import { colorForPercentage, palette, RESET, style } from "./ansi.js";
 import { buildBar } from "./progress.js";
+import type { StatuslineInput } from "./schemas.js";
 import { formatEpoch, parseIsoToEpoch } from "./time.js";
 
 export interface RateLimitWindow {
@@ -21,15 +22,16 @@ export interface RateLimitsData {
   extra: ExtraUsage | undefined;
 }
 
-export function extractRateLimitsFromInput(
-  input: unknown,
-): { fiveHour?: RateLimitWindow; sevenDay?: RateLimitWindow } | null {
-  if (!input || typeof input !== "object") return null;
-  const rate = (input as Record<string, unknown>)["rate_limits"];
-  if (!rate || typeof rate !== "object") return null;
+const LABEL_WIDTH = 7;
+const padLabel = (s: string) => s.padEnd(LABEL_WIDTH, " ");
 
-  const five = pickWindow((rate as Record<string, unknown>)["five_hour"]);
-  const seven = pickWindow((rate as Record<string, unknown>)["seven_day"]);
+export function extractRateLimitsFromInput(
+  input: StatuslineInput,
+): { fiveHour?: RateLimitWindow; sevenDay?: RateLimitWindow } | null {
+  const rate = input.rate_limits;
+  if (!rate) return null;
+  const five = pickWindow(rate.five_hour);
+  const seven = pickWindow(rate.seven_day);
   if (!five && !seven) return null;
   return {
     ...(five ? { fiveHour: five } : {}),
@@ -37,17 +39,16 @@ export function extractRateLimitsFromInput(
   };
 }
 
-function pickWindow(raw: unknown): RateLimitWindow | undefined {
-  if (!raw || typeof raw !== "object") return undefined;
-  const obj = raw as Record<string, unknown>;
-  const rawPct = obj["used_percentage"];
-  if (typeof rawPct !== "number") return undefined;
-  const resets = obj["resets_at"];
-  const resetEpoch =
-    typeof resets === "string" || typeof resets === "number"
-      ? parseIsoToEpoch(resets)
-      : undefined;
-  return { pct: Math.round(rawPct), resetEpoch };
+type RawRateLimitWindow = NonNullable<
+  NonNullable<StatuslineInput["rate_limits"]>["five_hour"]
+>;
+
+function pickWindow(raw: RawRateLimitWindow | null | undefined): RateLimitWindow | undefined {
+  if (!raw || typeof raw.used_percentage !== "number") return undefined;
+  return {
+    pct: Math.round(raw.used_percentage),
+    resetEpoch: parseIsoToEpoch(raw.resets_at),
+  };
 }
 
 export interface RenderOptions {
@@ -64,21 +65,19 @@ export function renderRateLines(
 
   if (data.fiveHour) {
     lines.push(
-      formatLimitLine(
-        "current",
-        data.fiveHour,
-        { ...options, timeStyle: "time" },
-      ),
+      formatLimitLine(padLabel("current"), data.fiveHour, {
+        ...options,
+        timeStyle: "time",
+      }),
     );
   }
 
   if (data.sevenDay) {
     lines.push(
-      formatLimitLine(
-        "weekly ",
-        data.sevenDay,
-        { ...options, timeStyle: "datetime" },
-      ),
+      formatLimitLine(padLabel("weekly"), data.sevenDay, {
+        ...options,
+        timeStyle: "datetime",
+      }),
     );
   }
 
@@ -117,7 +116,7 @@ function formatExtraLine(extra: ExtraUsage, options: RenderOptions): string {
   const used = (extra.usedCents / 100).toFixed(2);
   const limit = (extra.limitCents / 100).toFixed(2);
   return (
-    `${palette.white}extra  ${RESET} ${bar} ` +
+    `${palette.white}${padLabel("extra")}${RESET} ${bar} ` +
     `${pctColor}$${used}${style.dim}/${RESET}${palette.white}$${limit}${RESET} ` +
     `${style.dim}⟳${RESET} ${palette.white}${extra.resetLabel}${RESET}`
   );

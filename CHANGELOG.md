@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-04-27
+
+### Fixed
+
+- `claudeline --version` now prints the actual installed version (was
+  hardcoded to `0.1.0`). The version is now read from `package.json`
+  via a single `src/version.ts` module so it cannot drift again. The
+  `User-Agent` sent to the OAuth API now includes the real version too.
+- Context-percentage rounding is now consistent across the two code
+  paths in `contextSegment`. Previously `usedPercentage` rounded to
+  nearest while the token-math path used `Math.floor`, so the same real
+  utilisation could render with different colors and labels depending
+  on which Claude Code version was on the other end of stdin.
+- Stdin Zod schemas now tolerate `null` in optional fields. Previously
+  a payload like `{"effort":{"level":null}}` collapsed the entire
+  statusline to `"Claude"` silently. Schemas use a small `nullish()`
+  helper that accepts `T | null | undefined` so the consumer's existing
+  `?? fallback` handles both.
+- Extra-credits reset month now uses the user's timezone (from
+  `Intl.DateTimeFormat().resolvedOptions().timeZone`) instead of the
+  server's local clock. Cross-TZ users near month boundaries no longer
+  see an off-by-one month label.
+- `installer.install` warns to stderr when overwriting an existing
+  `statusLine.command` that points at something other than `claudeline
+  render`, so users migrating from another statusline tool know what
+  was replaced.
+- `installer` now writes `~/.claude/settings.json` atomically (write to
+  a sibling tempfile, then rename) so a crash mid-write cannot corrupt
+  user state. The temp file is also created with mode `0o600`.
+
+### Performance
+
+- Bundle size: **284 KB → 31 KB** (~9× smaller). Cold-start render
+  dropped from ~250–400 ms to ~80–120 ms p50. Achieved by switching
+  from `zod` to `zod/mini` (same author, function-style API).
+- Three sequential `git` invocations collapsed into one
+  `git --no-optional-locks status --porcelain --branch` call. Saves
+  ~22 ms per render in a git repo.
+- API timeout reduced from 5 s to 1.5 s. A slow network now caps user
+  visible latency at ~1.5 s instead of ~5 s.
+
+### Security
+
+- Strip C0/C1 control characters from any stdin-sourced text we reflect
+  to stdout (`model.display_name`, `cwd`, git branch). Defends against
+  ANSI escape injection (terminal-title spoofing, OSC-8 hyperlinks,
+  screen wipes) from a hostile branch name or repo path.
+- `installer.ts` writes the temp settings file with mode `0o600` so
+  secrets-adjacent state isn't world-readable on shared hosts.
+
+### Added
+
+- `tests/cli.test.ts` — 11 end-to-end CLI tests (`--version`, `--help`,
+  unknown command, empty/malformed/null/oversize stdin, effort glyph)
+  driven through the bundled `dist/cli.js`. The version-drift bug above
+  would have been caught here.
+- New tests for git status parser (detached HEAD, fresh repo, tracked
+  branch, dirty/clean), `nextMonthFirstEpoch` (cross-TZ + December
+  rollover), Windows backslash paths in `directorySegment`, and ANSI
+  injection.
+
+### Changed
+
+- `directorySegment` splits on both `/` and `\` so Windows-style cwd
+  values render as the basename instead of the full path.
+- `extractRateLimitsFromInput` now takes a typed `StatuslineInput` and
+  drops the runtime `as Record<string, unknown>` casts. The Zod schema
+  is now the single source of truth for the stdin shape.
+- Removed the dead `void homedir;` line in `cli.ts`. `homedir` was
+  never used at this level.
+
 ## [0.1.2] - 2026-04-26
 
 ### Changed
@@ -70,7 +141,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/arcasilesgroup/claudeline/releases/tag/v0.1.0

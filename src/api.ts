@@ -1,7 +1,10 @@
+import * as z from "zod/mini";
 import { type UsageApiResponse, usageApiSchema } from "./schemas.js";
+import { VERSION } from "./version.js";
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
-const USER_AGENT = "claudeline/0.1";
+const USER_AGENT = `claudeline/${VERSION}`;
+const DEFAULT_TIMEOUT_MS = 1500;
 
 export type FetchLike = (
   input: string | URL | Request,
@@ -20,7 +23,7 @@ export async function fetchUsage(
   if (!token || token.trim() === "") return undefined;
 
   const fetchFn = options.fetchFn ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 5000;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -38,7 +41,7 @@ export async function fetchUsage(
     });
     if (!response.ok) return undefined;
     const json = await response.json();
-    return usageApiSchema.parse(json);
+    return z.parse(usageApiSchema, json);
   } catch {
     return undefined;
   } finally {
