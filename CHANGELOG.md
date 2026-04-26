@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-26
+
+### Changed
+
+- README screenshot replaced with a richer capture taken during an
+  active session (dirty git branch, higher rate-limit utilization, and
+  the accept-edits permission hint visible).
+- The screenshot now ships with the GitHub-dark background applied,
+  black padding, and 16 px rounded corners, so it integrates cleanly
+  on both light and dark themes of github.com and the npm package page.
+
 ## [0.1.1] - 2026-04-26
 
 ### Changed
@@ -59,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/arcasilesgroup/claudeline/releases/tag/v0.1.0
