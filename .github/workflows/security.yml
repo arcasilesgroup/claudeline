@@ -42,12 +42,12 @@ jobs:
 
   osv:
     name: OSV vulnerability scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: google/osv-scanner-action/osv-scanner-action@v2.3.5
-        with:
-          scan-args: |-
-            --recursive
-            --skip-git
-            ./
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.3.5
+    with:
+      scan-args: |-
+        --recursive
+        ./
