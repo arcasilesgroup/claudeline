@@ -10,11 +10,7 @@ A cross-platform statusline for [Claude Code](https://claude.com/claude-code).
 TypeScript, single binary, zero config.
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/screenshot-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/screenshot-light.png">
-    <img src="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/screenshot.png" alt="claudeline running inside Claude Code: model name with 1M context, ✍️ context %, working directory and git branch, effort glyph, thinking indicator, and 5-hour and weekly rate-limit bars" width="900" />
-  </picture>
+  <img src="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/screenshot-dark.png" alt="claudeline running inside Claude Code: model name with 1M context, ✍️ context %, working directory and git branch, effort glyph, thinking indicator, and 5-hour and weekly rate-limit bars" width="900" />
 </p>
 
 ## Features
