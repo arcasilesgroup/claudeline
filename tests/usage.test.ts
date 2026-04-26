@@ -129,4 +129,40 @@ describe("cache file", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("saveJsonCache replaces a pre-existing symlink instead of writing through it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "claudeline-cache-sym-"));
+    const target = join(dir, "victim.json");
+    const cache = join(dir, "cache.json");
+    const fs = require("node:fs") as typeof import("node:fs");
+    try {
+      fs.writeFileSync(target, "ORIGINAL");
+      fs.symlinkSync(target, cache);
+      saveJsonCache(cache, { hello: "safe" });
+      // Victim must be untouched, cache must hold our payload.
+      expect(fs.readFileSync(target, "utf-8")).toBe("ORIGINAL");
+      expect(JSON.parse(fs.readFileSync(cache, "utf-8"))).toEqual({
+        hello: "safe",
+      });
+      // The cache path should no longer be a symlink.
+      expect(fs.lstatSync(cache).isSymbolicLink()).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loadJsonCache refuses to follow a symlink (O_NOFOLLOW)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "claudeline-cache-nofollow-"));
+    const real = join(dir, "real.json");
+    const cache = join(dir, "cache.json");
+    const fs = require("node:fs") as typeof import("node:fs");
+    try {
+      fs.writeFileSync(real, JSON.stringify({ shouldNotLeak: true }));
+      fs.symlinkSync(real, cache);
+      // O_NOFOLLOW errors with ELOOP; loader catches and returns undefined.
+      expect(loadJsonCache(cache, 60_000)).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
