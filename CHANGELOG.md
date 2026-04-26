@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-04-26
+
+### Changed
+
+- README now leads with a real screenshot captured inside Claude Code
+  instead of an ASCII art block. The image is referenced via absolute
+  `raw.githubusercontent.com` URL so it renders identically on
+  github.com and the npm package page.
+
+### Maintenance
+
+- CI: bumped `actions/checkout` v4 → v6, `actions/setup-node` v4 → v6,
+  and `github/codeql-action` v3 → v4 to run on Node 24 ahead of the
+  June 2026 deprecation of Node 20 in GitHub Actions.
+- CI: migrated OSV vulnerability scan to the official
+  `osv-scanner-action` v2 reusable workflow, which now uploads SARIF to
+  the GitHub Security tab automatically.
+- Tests: removed a brittle assertion that depended on the working tree
+  being checked out on a branch named `main`; the remaining git tests
+  use a temporary fixture repo and stay robust to detached HEAD checkouts.
+- Defense-in-depth: cap stdin reads at 1 MiB; cache files written with
+  `0600` inside a `0700` directory.
+
 ## [0.1.0] - 2026-04-26
 
 ### Added
@@ -36,5 +59,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/arcasilesgroup/claudeline/releases/tag/v0.1.0
