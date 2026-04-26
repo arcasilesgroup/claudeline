@@ -86,7 +86,11 @@ async function runRender(): Promise<number> {
     return 0;
   }
 
-  const cachePath = join(tmpdir(), "claudeline", "usage-cache.json");
+  // Per-uid subdir so that on shared hosts a co-tenant cannot plant
+  // symlinks in our namespace or read our cache. The `0o700` mkdir +
+  // `0o600` write in cache.ts hold inside this directory.
+  const uid = typeof process.getuid === "function" ? process.getuid() : "shared";
+  const cachePath = join(tmpdir(), `claudeline-${uid}`, "usage-cache.json");
   const force24 = parseForce24(readMacDefault("AppleICUForce24HourTime"));
   const appleLocale = readMacDefault("AppleLocale");
 

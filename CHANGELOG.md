@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-04-27
+
+### Security
+
+- Cache directory is now per-uid (`<tmpdir>/claudeline-<uid>/usage-cache.json`)
+  so co-tenants on a shared host cannot plant symlinks in our namespace
+  or read our cache contents. Closes [CWE-377/378] (Insecure Temporary
+  File) flagged by CodeQL on 0.1.4. The existing `0o700` directory and
+  `0o600` file modes remain in place; the per-uid prefix makes cross-uid
+  attacks impossible regardless of those modes.
+
+[CWE-377/378]: https://cwe.mitre.org/data/definitions/377.html
+
 ## [0.1.4] - 2026-04-27
 
 ### Security
@@ -160,7 +173,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.1...v0.1.2
