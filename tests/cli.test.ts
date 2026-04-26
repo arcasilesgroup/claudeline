@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,8 +18,27 @@ function run(args: string[], stdin = "") {
   });
 }
 
+beforeAll(() => {
+  if (existsSync(dist)) return;
+  const result = spawnSync(
+    "bun",
+    [
+      "build",
+      "src/cli.ts",
+      "--target=node",
+      "--outfile=dist/cli.js",
+      "--minify",
+      "--banner=#!/usr/bin/env node",
+    ],
+    { cwd: root, encoding: "utf-8" },
+  );
+  if (result.status !== 0) {
+    throw new Error(`bun build failed: ${result.stderr}`);
+  }
+});
+
 describe("cli", () => {
-  test("dist/cli.js exists (run `bun run build` first)", () => {
+  test("dist/cli.js exists after beforeAll", () => {
     expect(existsSync(dist)).toBe(true);
   });
 
