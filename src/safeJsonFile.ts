@@ -10,6 +10,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+// `lstatSync` is already imported below for the writer; the loader uses
+// it too now to refuse pre-existing symlinks even on Windows.
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -38,6 +40,15 @@ export function loadJson<T = unknown>(
 ): T | undefined {
   let fd: number | undefined;
   try {
+    // Reject symlinks before opening. On POSIX `O_NOFOLLOW` covers this
+    // atomically (and we keep it as belt-and-suspenders), but Windows
+    // does not honour the flag — `openSync` happily follows the link.
+    // This pre-check works on every platform.
+    try {
+      if (lstatSync(filePath).isSymbolicLink()) return undefined;
+    } catch {
+      // not present → openSync below will return undefined too
+    }
     fd = openSync(
       filePath,
       constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-04-27
+
+### Fixed
+
+- **Windows symlink rejection** in the cache and state file readers.
+  `loadJsonCache` / `loadState` rely on `O_NOFOLLOW` to refuse a
+  pre-planted symlink, but Windows ignores that flag. The reader now
+  does an explicit `lstatSync(...).isSymbolicLink()` check before the
+  open, which works on every platform. POSIX users keep `O_NOFOLLOW`
+  as a defense-in-depth second line. Also fixes the corresponding
+  test failures on the Windows CI runner (which were the only
+  Windows-test regressions in 0.2.x).
+
 ## [0.2.2] - 2026-04-27
 
 ### Changed
@@ -271,7 +284,8 @@ The first feature release on top of the 0.1.x security/quality groundwork.
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.5...v0.2.0
