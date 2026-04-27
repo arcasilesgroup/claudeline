@@ -5,8 +5,11 @@
   "description": "Remotion project that renders the claudeline demo GIF/MP4. Isolated from the main package.",
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render:mp4": "remotion render src/index.ts statusline ../demo.mp4 --width=1280 --height=180",
-    "render:gif": "remotion render src/index.ts statusline ../demo.gif --codec=gif --width=1280 --height=180"
+    "render:gif:statusline": "remotion render src/index.ts statusline ../demo-statusline.gif --codec=gif",
+    "render:gif:cli": "remotion render src/index.ts cli ../demo-cli.gif --codec=gif",
+    "render:gif:all": "npm run render:gif:statusline && npm run render:gif:cli",
+    "render:mp4:statusline": "remotion render src/index.ts statusline ../demo-statusline.mp4 --width=1280 --height=240",
+    "render:mp4:cli": "remotion render src/index.ts cli ../demo-cli.mp4 --width=1280 --height=680"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.392",

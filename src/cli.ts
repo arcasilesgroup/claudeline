@@ -3,8 +3,7 @@ import { arch, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as z from "zod/mini";
 import { fetchUsage } from "./api.js";
-import { loadJsonCache, saveJsonCache } from "./cache.js";
-import { adoptCachedUsage } from "./cli-shared.js";
+import { adoptCachedUsage, loadJsonCache, saveJsonCache } from "./cache.js";
 import { defaultCredentialSources, loadOAuthToken } from "./credentials.js";
 import { type DoctorEnv, printReport, runDoctor } from "./doctor.js";
 import { getGitInfo } from "./git.js";
@@ -20,8 +19,6 @@ import { defaultSettingsPath, readSettingsFile } from "./settings.js";
 import { type RateState, loadState, saveState } from "./state.js";
 import { detect24Hour } from "./time.js";
 import { VERSION } from "./version.js";
-
-export { adoptCachedUsage };
 
 const HELP = `claudeline ${VERSION} — cross-platform statusline for Claude Code
 

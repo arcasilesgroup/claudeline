@@ -7,30 +7,7 @@ import {
   renderStatusline,
 } from "../src/render.js";
 import type { RateState } from "../src/state.js";
-
-const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
-
-function mockDeps(overrides: Partial<RenderDeps> = {}): RenderDeps {
-  let stateStore: RateState = {};
-  return {
-    readSettings: () => ({}),
-    getGitInfo: () => ({ branch: undefined, dirty: false, worktree: false }),
-    detect24Hour: true,
-    timeZone: "Europe/Madrid",
-    now: () => new Date("2026-04-26T20:00:00Z").getTime(),
-    skipPermissions: false,
-    glyphs: glyphsFor("emoji"),
-    fetchUsage: async () => undefined,
-    loadToken: () => undefined,
-    cacheLoad: () => undefined,
-    cacheSave: () => {},
-    loadState: () => stateStore,
-    saveState: (s) => {
-      stateStore = s;
-    },
-    ...overrides,
-  };
-}
+import { mockDeps, stripAnsi } from "./_mockDeps.js";
 
 describe("renderStatusline", () => {
   test("renders the basic line with model, context, dir, session, effort, thinking", async () => {

@@ -214,7 +214,7 @@ describe("adoptCachedUsage (cache-shape migration)", () => {
   // Lazy import so the cli module only loads when this describe runs;
   // keeps the spawn-based tests above isolated.
   test("rejects pre-0.2 UsageApiResponse-shaped cache (no .data wrapper)", async () => {
-    const { adoptCachedUsage } = await import("../src/cli.js");
+    const { adoptCachedUsage } = await import("../src/cache.js");
     const stale = {
       five_hour: { utilization: 5, resets_at: "2026-04-26T22:30:00Z" },
     };
@@ -222,7 +222,7 @@ describe("adoptCachedUsage (cache-shape migration)", () => {
   });
 
   test("accepts 0.2 cache shape", async () => {
-    const { adoptCachedUsage } = await import("../src/cli.js");
+    const { adoptCachedUsage } = await import("../src/cache.js");
     const fresh = {
       data: { five_hour: { utilization: 5 } },
       latencyMs: 100,
@@ -231,7 +231,7 @@ describe("adoptCachedUsage (cache-shape migration)", () => {
   });
 
   test("rejects null, primitives, arrays, and missing data field", async () => {
-    const { adoptCachedUsage } = await import("../src/cli.js");
+    const { adoptCachedUsage } = await import("../src/cache.js");
     expect(adoptCachedUsage(null)).toBeUndefined();
     expect(adoptCachedUsage("string")).toBeUndefined();
     expect(adoptCachedUsage(42)).toBeUndefined();
@@ -242,7 +242,7 @@ describe("adoptCachedUsage (cache-shape migration)", () => {
   });
 
   test("forward-compatibly defaults missing latencyMs to 0", async () => {
-    const { adoptCachedUsage } = await import("../src/cli.js");
+    const { adoptCachedUsage } = await import("../src/cache.js");
     const partial = { data: { five_hour: {} } };
     const adopted = adoptCachedUsage(partial);
     expect(adopted?.latencyMs).toBe(0);

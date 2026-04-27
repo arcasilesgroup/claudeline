@@ -1,0 +1,62 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000002",
+  "transcript_path": "/Users/dev/.claude/projects/example/00000000-0000-0000-0000-000000000002.jsonl",
+  "cwd": "/Users/dev/repos/small",
+  "model": {
+    "id": "claude-opus-4-7[1m]",
+    "display_name": "Opus 4.7 (1M context)"
+  },
+  "workspace": {
+    "current_dir": "/Users/dev/repos/small",
+    "project_dir": "/Users/dev/repos/small",
+    "added_dirs": [
+      "/Users/soydachi/repos/claudeline",
+      "/Users/soydachi/.claude/image-cache/83bb7279-8df4-4115-bfaf-d094d0c0932f",
+      "/tmp",
+      "/private/tmp",
+      "/Users/soydachi"
+    ]
+  },
+  "version": "2.1.119",
+  "output_style": {
+    "name": "default"
+  },
+  "cost": {
+    "total_cost_usd": 0.087,
+    "total_duration_ms": 8000,
+    "total_api_duration_ms": 2000,
+    "total_lines_added": 4,
+    "total_lines_removed": 1
+  },
+  "context_window": {
+    "total_input_tokens": 4410,
+    "total_output_tokens": 693844,
+    "context_window_size": 1000000,
+    "current_usage": {
+      "input_tokens": 2000,
+      "output_tokens": 200,
+      "cache_creation_input_tokens": 276,
+      "cache_read_input_tokens": 900065
+    },
+    "used_percentage": 3,
+    "remaining_percentage": 10
+  },
+  "exceeds_200k_tokens": false,
+  "fast_mode": false,
+  "effort": {
+    "level": "medium"
+  },
+  "thinking": {
+    "enabled": false
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 59,
+      "resets_at": 1777296000
+    },
+    "seven_day": {
+      "used_percentage": 49,
+      "resets_at": 1777665600
+    }
+  }
+}

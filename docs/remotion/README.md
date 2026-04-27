@@ -1,20 +1,27 @@
 # Demo regeneration
 
-This subproject renders the README demo (`docs/demo.gif` and `docs/demo.mp4`).
-Only regenerate when the visible statusline changes — don't churn the
+This subproject renders the README demo gifs:
+
+- `docs/demo-statusline.gif` — animated statusline ribbon (`Statusline.tsx`)
+- `docs/demo-cli.gif` — `claudeline doctor` output reveal (`Cli.tsx`)
+
+Only regenerate when the visible output changes — don't churn the
 asset on every release.
 
 ```bash
 cd docs/remotion
-npm install                       # ~127 MB, gitignored
-bunx remotion render src/index.ts statusline ../demo.mp4 \
-  --width=1280 --height=180
+npm install                  # ~127 MB, gitignored
 
-# Re-encode to GIF with a tighter palette than Remotion's default:
-ffmpeg -y -i ../demo.mp4 \
-  -vf "fps=20,scale=1280:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
-  ../demo.gif
+npm run render:gif:statusline   # → ../demo-statusline.gif
+npm run render:gif:cli          # → ../demo-cli.gif
+npm run render:gif:all          # both
 ```
 
-`Statusline.tsx` walks five animation phases (model+cwd, context grow,
-effort+cost, rate-limit bars filling, hold). Tweak there.
+Use `npm run studio` to live-preview either composition while
+tweaking — Remotion Studio scrubs through the timeline and reflects
+edits to `Statusline.tsx` / `Cli.tsx` instantly.
+
+`Statusline.tsx` walks five animation phases (model+cwd, context
+grow, effort+cost, rate-limit bars filling, hold). `Cli.tsx`
+reveals the doctor output section by section, mirroring the live
+`printReport` output.

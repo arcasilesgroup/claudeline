@@ -2,10 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as z from "zod/mini";
-import { glyphsFor } from "../src/glyphs.js";
-import { renderStatusline, type RenderDeps } from "../src/render.js";
+import { renderStatusline } from "../src/render.js";
 import { statuslineInputSchema } from "../src/schemas.js";
-import type { RateState } from "../src/state.js";
+import { mockDeps, stripAnsi } from "./_mockDeps.js";
 
 // Fixtures captured from a real Claude Code 2.1.119 session via a tap
 // wrapper that recorded stdin payloads. Re-running these against the
@@ -26,33 +25,24 @@ const fixtures = readdirSync(fixturesDir)
     payload: JSON.parse(readFileSync(join(fixturesDir, name), "utf-8")),
   }));
 
-function mockDeps(overrides: Partial<RenderDeps> = {}): RenderDeps {
-  let store: RateState = {};
-  return {
-    readSettings: () => ({}),
-    getGitInfo: () => ({ branch: undefined, dirty: false, worktree: false }),
-    detect24Hour: true,
-    timeZone: "Europe/Madrid",
-    now: () => 1777300000_000,
-    skipPermissions: false,
-    glyphs: glyphsFor("emoji"),
-    fetchUsage: async () => undefined,
-    loadToken: () => undefined,
-    cacheLoad: () => undefined,
-    cacheSave: () => {},
-    loadState: () => store,
-    saveState: (s) => {
-      store = s;
-    },
-    ...overrides,
-  };
-}
-
-const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
-
 describe("real Claude Code stdin fixtures", () => {
   test("at least one fixture is present (else the suite is meaningless)", () => {
     expect(fixtures.length).toBeGreaterThan(0);
+  });
+
+  test("fixtures cover the matrix of optional flags", () => {
+    // The suite is only useful if the fixtures actually differ. If they
+    // all carry the same flags, three fixtures buy us nothing over one.
+    const flags = fixtures.map(({ payload }) => ({
+      fast: payload.fast_mode === true,
+      large: payload.exceeds_200k_tokens === true,
+      smallCost:
+        typeof payload.cost?.total_cost_usd === "number" &&
+        payload.cost.total_cost_usd < 1,
+    }));
+    expect(flags.some((f) => f.fast)).toBe(true);
+    expect(flags.some((f) => !f.large)).toBe(true);
+    expect(flags.some((f) => f.smallCost)).toBe(true);
   });
 
   for (const { name, payload } of fixtures) {

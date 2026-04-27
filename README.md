@@ -14,7 +14,11 @@ TypeScript, single binary, zero config.
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/demo.gif" alt="claudeline animated demo: model, context %, dir+git, cost, effort, thinking, rate-limit bars filling up" width="900" />
+  <img src="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/demo-statusline.gif" alt="claudeline animated demo: model, context %, dir+git, cost, effort, thinking, rate-limit bars filling up" width="900" />
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/demo-cli.gif" alt="claudeline doctor — sectioned tree-style diagnostic output" width="900" />
 </p>
 
 ## Features
@@ -185,9 +189,51 @@ than `api.anthropic.com`.
 claudeline render        Read JSON from stdin and emit the statusline
 claudeline install       Wire claudeline as the statusLine in ~/.claude/settings.json
 claudeline uninstall     Remove claudeline from ~/.claude/settings.json
+claudeline doctor        Run diagnostics and print a pass/warn/fail report
 claudeline --help        Show this help
 claudeline --version     Show version
 ```
+
+### `claudeline doctor`
+
+Eight read-only diagnostic checks against your environment, grouped into
+sections and rendered in `claude doctor` style. Always exits 0 —
+informational only, never modifies anything.
+
+```text
+────────────────────────────────────────────────────────────────────────
+
+  Diagnostics
+  ├ Version: claudeline 0.3.1
+  ├ Engine: Node 25.9.0
+  ├ Platform: darwin-arm64
+  └ Cache directory: /var/folders/.../claudeline-501
+
+  Configuration
+  ├ statusLine wired in ~/.claude/settings.json
+  ├ effortLevel in settings.json: "high"
+  ├ Cache directory exists with 0o700 permissions
+  └ Stdin schema parses a synthetic test payload
+
+  Health
+  ├ Cache entry shape parses cleanly
+  └ State file shape parses cleanly
+
+  ⚠ CLAUDE_CODE_EFFORT_LEVEL=max in environment
+    ├ This overrides settings.json effortLevel and blocks /model.
+    └ Unset it or comment out the export in your shell rc to use /model freely.
+
+  Summary: 0 errors, 1 warning, 5 ok
+```
+
+Warnings and errors are surfaced in their own block beneath the report
+(eye lands at the end, per [clig.dev][]). The output respects
+[`NO_COLOR`][nocolor], `TERM=dumb`, and non-TTY pipes — ANSI is dropped
+automatically when the consumer isn't a colour-capable terminal, so
+piping to `grep`/`awk` produces clean text.
+
+[clig.dev]: https://clig.dev/
+[nocolor]: https://no-color.org/
 
 ## Local development
 

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs:** `claudeline doctor` is now embedded in the README with a
+  full sample of its sectioned/tree-style output and mention of
+  `NO_COLOR` support.
+- **Demo gifs:** the README now embeds two distinct gifs —
+  `demo-statusline.gif` (the live ribbon, unchanged from before) and
+  `demo-cli.gif` (a new animated reveal of the doctor output). The
+  Remotion project gained a sibling composition (`Cli.tsx`) plus
+  `render:gif:statusline` / `render:gif:cli` / `render:gif:all` npm
+  scripts.
+
+### Internal
+
+- `adoptCachedUsage` now lives in `src/cache.ts` alongside the rest
+  of the cache plumbing, instead of a separate `cli-shared.ts`
+  module. The architecture review flagged the old name as
+  "by caller, not by domain"; folding it into `cache.ts` removes
+  that doc-debt and the back-compat re-export from `cli.ts`.
+- `tests/_mockDeps.ts`: extracted shared `mockDeps(overrides)` +
+  `stripAnsi` helpers used by `tests/render.test.ts` and
+  `tests/fixtures.test.ts`. One source of truth for the `RenderDeps`
+  shape so future evolutions don't drift across files.
+- Two more fixtures: `active-session-fast-mode.json` (`fast_mode: true`,
+  cost < $1) and `active-session-small-cost.json` (3-decimal cost,
+  no extended thinking). The fixture-diversity assertion the testing
+  review suggested is now a real test, not implicit.
+
 ## [0.3.1] - 2026-04-27
 
 ### Changed

@@ -1,8 +1,13 @@
 import { Composition } from "remotion";
+import { Cli } from "./Cli";
 import { Statusline } from "./Statusline";
 
-// 11 seconds at 30 fps = 330 frames. Wide canvas; height bumped to 240 to
-// accommodate the rounded panel + outer padding that mimics the screenshot.
+// Two compositions — both rendered to GIFs for the README.
+//   `statusline` (1280×240, 11 s):   the live ribbon at the bottom of
+//                                    Claude Code, animated through every
+//                                    threshold colour transition.
+//   `cli`        (1280×680, 13.7 s): the new `claudeline doctor` output,
+//                                    revealed section by section.
 export const RemotionRoot: React.FC = () => {
   return (
     <>
@@ -13,6 +18,14 @@ export const RemotionRoot: React.FC = () => {
         fps={30}
         width={1280}
         height={240}
+      />
+      <Composition
+        id="cli"
+        component={Cli}
+        durationInFrames={410}
+        fps={30}
+        width={1280}
+        height={680}
       />
     </>
   );

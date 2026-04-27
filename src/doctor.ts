@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import * as z from "zod/mini";
 import { palette, RESET, style } from "./ansi.js";
-import { adoptCachedUsage } from "./cli-shared.js";
+import { adoptCachedUsage } from "./cache.js";
 import { statuslineInputSchema } from "./schemas.js";
 import { readSettingsFile } from "./settings.js";
 import { type RateState } from "./state.js";
