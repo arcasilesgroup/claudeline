@@ -157,6 +157,7 @@ function buildContextInput(input: StatuslineInput) {
 function buildCostInput(input: StatuslineInput) {
   const usage = input.context_window?.current_usage;
   return {
+    totalCostUsd: input.cost?.total_cost_usd ?? undefined,
     modelId: input.model?.id ?? input.model?.display_name ?? undefined,
     inputTokens: usage?.input_tokens ?? 0,
     cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,

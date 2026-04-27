@@ -63,6 +63,14 @@ export const statuslineInputSchema = z.looseObject({
       seven_day: nullish(rateLimitWindow),
     }),
   ),
+  // Claude Code emits the authoritative session cost server-side.
+  // Prefer this over computing locally from `current_usage` × pricing
+  // (which only covers the last turn, not the cumulative session).
+  cost: nullish(
+    z.object({
+      total_cost_usd: nullish(z.number().check(z.nonnegative())),
+    }),
+  ),
 });
 
 export type StatuslineInput = z.infer<typeof statuslineInputSchema>;

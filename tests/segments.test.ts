@@ -340,6 +340,54 @@ describe("costSegment", () => {
       ),
     ).toBe("");
   });
+
+  test("prefers totalCostUsd over local computation", () => {
+    const out = costSegment(
+      {
+        totalCostUsd: 225.7886,
+        modelId: "claude-sonnet",
+        inputTokens: 1000,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 100,
+      },
+      sonnetPricing,
+      emoji,
+    );
+    expect(stripAnsi(out)).toBe("💸 $225.79");
+  });
+
+  test("falls back to local pricing when totalCostUsd absent", () => {
+    const out = costSegment(
+      {
+        modelId: "claude-sonnet",
+        inputTokens: 500_000,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 50_000,
+      },
+      sonnetPricing,
+      emoji,
+    );
+    // 0.5M*$3 + 0.05M*$15 = $2.25
+    expect(stripAnsi(out)).toBe("💸 $2.25");
+  });
+
+  test("renders even when no pricing if totalCostUsd is supplied", () => {
+    const out = costSegment(
+      {
+        totalCostUsd: 10.5,
+        modelId: "unknown-model",
+        inputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+      },
+      undefined,
+      emoji,
+    );
+    expect(stripAnsi(out)).toBe("💸 $10.50");
+  });
 });
 
 describe("latencySegment", () => {

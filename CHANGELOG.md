@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-04-27
+
+### Fixed
+
+- **Cost segment now reports the real cumulative session cost.**
+  0.2.0–0.2.3 derived the figure from `context_window.current_usage`
+  multiplied by Anthropic's price table, but `current_usage` is only
+  the *last turn*'s token delta, not the running session sum. So the
+  number we printed jumped around with each prompt and severely
+  understated the real spend (e.g. `💸 $1.32` while Claude Code's
+  internal tracker said $225+ for the same session). Claude Code
+  always emits `cost.total_cost_usd` in the statusline JSON; we now
+  prefer that authoritative figure and only fall back to local
+  token×price computation when it is absent. The local fallback is
+  retained because older Claude Code releases may not emit `cost`
+  and because it lets cost still render in tests with synthetic
+  payloads.
+
 ## [0.2.3] - 2026-04-27
 
 ### Fixed
@@ -284,7 +302,8 @@ The first feature release on top of the 0.1.x security/quality groundwork.
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.0...v0.2.1

@@ -121,6 +121,11 @@ export function thinkingSegment(
 }
 
 export interface CostInput {
+  // Authoritative cumulative session cost from Claude Code, when present.
+  // Always preferred — it's the server-side number that Anthropic uses
+  // for billing. Falling back to `current_usage` × pricing under-reports
+  // because `current_usage` is the last-turn delta, not the session sum.
+  totalCostUsd?: number | null | undefined;
   modelId: string | null | undefined;
   inputTokens: number;
   cacheCreationTokens: number;
@@ -133,13 +138,19 @@ export function costSegment(
   pricePerMillionTokens: ModelPricing | undefined,
   glyphs: GlyphSet,
 ): string {
-  if (!pricePerMillionTokens) return "";
-  const dollars =
-    (input.inputTokens / 1_000_000) * pricePerMillionTokens.input +
-    (input.cacheCreationTokens / 1_000_000) *
-      pricePerMillionTokens.cacheCreation +
-    (input.cacheReadTokens / 1_000_000) * pricePerMillionTokens.cacheRead +
-    (input.outputTokens / 1_000_000) * pricePerMillionTokens.output;
+  let dollars: number;
+  if (typeof input.totalCostUsd === "number" && input.totalCostUsd >= 0) {
+    dollars = input.totalCostUsd;
+  } else if (pricePerMillionTokens) {
+    dollars =
+      (input.inputTokens / 1_000_000) * pricePerMillionTokens.input +
+      (input.cacheCreationTokens / 1_000_000) *
+        pricePerMillionTokens.cacheCreation +
+      (input.cacheReadTokens / 1_000_000) * pricePerMillionTokens.cacheRead +
+      (input.outputTokens / 1_000_000) * pricePerMillionTokens.output;
+  } else {
+    return "";
+  }
   if (dollars <= 0) return "";
   const formatted = dollars >= 1 ? dollars.toFixed(2) : dollars.toFixed(3);
   return `${glyphs.cost} ${palette.yellow}$${formatted}${RESET}`;
