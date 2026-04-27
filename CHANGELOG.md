@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-04-27
+
+Polish bundle. No runtime behaviour change — five follow-ups from
+the multi-agent review of 0.3.0/0.3.1, plus two distinct demo GIFs
+in the README.
+
 ### Changed
 
 - **Docs:** `claudeline doctor` is now embedded in the README with a
@@ -34,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cost < $1) and `active-session-small-cost.json` (3-decimal cost,
   no extended thinking). The fixture-diversity assertion the testing
   review suggested is now a real test, not implicit.
+
+### Tests
+
+- 293 → 302 (+9). New `mockDeps` helper, fixture-diversity assertion,
+  per-fixture parse + render runs across the two new payloads.
 
 ## [0.3.1] - 2026-04-27
 

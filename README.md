@@ -204,7 +204,7 @@ informational only, never modifies anything.
 ────────────────────────────────────────────────────────────────────────
 
   Diagnostics
-  ├ Version: claudeline 0.3.1
+  ├ Version: claudeline 0.3.2
   ├ Engine: Node 25.9.0
   ├ Platform: darwin-arm64
   └ Cache directory: /var/folders/.../claudeline-501
