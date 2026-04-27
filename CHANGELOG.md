@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-04-27
+
+### Changed
+
+- `safeJsonFile.loadJson` now skips the explicit `lstatSync` symlink
+  check on POSIX and relies entirely on `O_NOFOLLOW` for symlink
+  rejection. The previous code did both, which closed CodeQL's
+  symlink-following alert but introduced a tiny TOCTOU window
+  (`js/file-system-race`, CWE-367) between the check and the open.
+  POSIX now has zero TOCTOU window. Windows still uses the lstat
+  pre-check (because Windows ignores `O_NOFOLLOW`); the cache and
+  state files live in a per-uid `0o700` directory so any attacker
+  capable of swapping the file already shares the UID, making the
+  race irrelevant in practice.
+
 ## [0.2.4] - 2026-04-27
 
 ### Fixed
@@ -302,7 +317,8 @@ The first feature release on top of the 0.1.x security/quality groundwork.
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.1...v0.2.2

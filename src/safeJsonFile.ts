@@ -40,14 +40,24 @@ export function loadJson<T = unknown>(
 ): T | undefined {
   let fd: number | undefined;
   try {
-    // Reject symlinks before opening. On POSIX `O_NOFOLLOW` covers this
-    // atomically (and we keep it as belt-and-suspenders), but Windows
-    // does not honour the flag — `openSync` happily follows the link.
-    // This pre-check works on every platform.
-    try {
-      if (lstatSync(filePath).isSymbolicLink()) return undefined;
-    } catch {
-      // not present → openSync below will return undefined too
+    // Reject symlinks before opening.
+    //
+    // POSIX path: `O_NOFOLLOW` is honoured atomically by the kernel —
+    // no TOCTOU window. We rely on it exclusively.
+    //
+    // Windows path: `O_NOFOLLOW` is silently ignored. We fall back to
+    // `lstatSync().isSymbolicLink()` which has a tiny TOCTOU window
+    // (CodeQL `js/file-system-race`). The cache and state files live
+    // in a per-uid directory created with mode `0o700`, so any
+    // attacker capable of swapping the file between lstat and open
+    // already shares the user's UID — at which point the cache is
+    // not a meaningful trust boundary.
+    if (process.platform === "win32") {
+      try {
+        if (lstatSync(filePath).isSymbolicLink()) return undefined;
+      } catch {
+        // not present → openSync below will return undefined too
+      }
     }
     fd = openSync(
       filePath,
