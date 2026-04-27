@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { platform, tmpdir } from "node:os";
+import { arch, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as z from "zod/mini";
 import { fetchUsage } from "./api.js";
@@ -94,7 +94,13 @@ async function main(): Promise<number> {
 function runDoctorCmd(): number {
   const env = buildRealDoctorEnv();
   const report = runDoctor(env);
-  process.stdout.write(`${printReport(report)}\n`);
+  // Honor NO_COLOR (https://no-color.org) and pipe-to-not-a-tty per
+  // clig.dev: "Disable color if stdout is not an interactive terminal."
+  const useColor =
+    !process.env["NO_COLOR"] &&
+    process.env["TERM"] !== "dumb" &&
+    process.stdout.isTTY === true;
+  process.stdout.write(`${printReport(report, { color: useColor })}\n`);
   return 0;
 }
 
@@ -113,6 +119,7 @@ function buildRealDoctorEnv(): DoctorEnv {
     tmpdir: tmpdir(),
     userInfo: uid !== undefined ? { uid } : {},
     platform: platform(),
+    arch: arch() as NodeJS.Architecture,
     existsSync: (p: string) => existsSync(p),
     statMode: (p: string) => {
       try {

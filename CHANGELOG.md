@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-27
+
+### Changed
+
+- **`claudeline doctor` UX overhaul** to match `claude doctor`. Output
+  now opens with a horizontal rule and groups facts into three bold
+  sections: **Diagnostics** (claudeline version, Node/Bun engine,
+  platform, cache directory), **Configuration** (statusLine wired,
+  effortLevel, cache permissions, stdin schema), and **Health** (cache
+  shape, state file shape). Each section renders as a tree with
+  ` ├ ` / ` └ ` branch chars instead of a flat emoji-prefixed list.
+  Warnings and errors bubble out of their section into a dedicated
+  block beneath the report, with the eye-catching ⚠ / ✗ marker and a
+  tree-indented action item — clig.dev's "put the most important
+  information at the end" pattern.
+- `printReport` now honors `NO_COLOR`, `TERM=dumb`, and pipes (non-TTY
+  stdout) — ANSI escapes are dropped automatically when the consumer
+  isn't a colour-capable terminal. Per [no-color.org][nc] / clig.dev.
+
+[nc]: https://no-color.org
+
+### Added
+
+- New diagnostic facts in the doctor output: `Platform: <os>-<arch>`
+  and `Cache directory: <path>`. Both pure info — same data was
+  available before but only via `os.platform()` and reading
+  `process.env.TMPDIR`.
+
+### Tests
+
+- Refactored doctor test suite to assert the new section structure,
+  tree-style output, NO_COLOR opt-out, and singular/plural summary
+  text. 291 → 293 tests (+2 net).
+
 ## [0.3.0] - 2026-04-27
 
 The first feature release on top of the 0.2.x bug-fix run. Six new

@@ -26,6 +26,7 @@ function happyEnv(overrides: Partial<DoctorEnv> = {}): DoctorEnv {
     tmpdir: "/tmp",
     userInfo: { uid: 501 },
     platform: "darwin",
+    arch: "arm64",
     existsSync: (p: string) =>
       // Cache dir + cache + state files all exist in the happy env.
       p === "/tmp/claudeline-501" ||
@@ -339,53 +340,99 @@ describe("runDoctor (composition)", () => {
     expect(report.summary.warnings).toBeGreaterThanOrEqual(4);
   });
 
-  test("returned lines are in the expected check order", () => {
+  test("composition produces three sections in the expected order", () => {
     const report = runDoctor(happyEnv());
-    // Spot-check: status line first, engine info towards the end.
-    expect(report.lines[0]?.message).toContain("statusLine");
+    expect(report.sections.map((s) => s.title)).toEqual([
+      "Diagnostics",
+      "Configuration",
+      "Health",
+    ]);
+    // Diagnostics opens with the version line (the "what am I running?"
+    // signal claude doctor surfaces first).
+    expect(report.sections[0]?.lines[0]?.message).toContain("Version: claudeline");
+    // Configuration is the second section; statusLine is its first check.
+    expect(report.sections[1]?.lines[0]?.message).toContain("statusLine");
+  });
+
+  test("flat lines view stays in section order for back-compat", () => {
+    const report = runDoctor(happyEnv());
+    expect(report.lines[0]?.message).toContain("Version: claudeline");
+    // Health closes the report; state/cache shape is the last fact.
     const last = report.lines[report.lines.length - 1];
-    // Either the version check (ok) or engine (info) closes the run.
-    expect(last?.message).toMatch(/(claudeline|Node)/);
+    expect(last?.message).toMatch(/(State file|Cache entry)/);
   });
 });
 
 describe("printReport", () => {
-  test("happy path output contains check labels and summary", () => {
+  test("happy path output renders sections, tree branches, and summary", () => {
     const report = runDoctor(happyEnv());
-    const printed = stripAnsi(printReport(report));
-    expect(printed).toContain("claudeline doctor");
+    const printed = stripAnsi(printReport(report, { color: false }));
+    // Section headers replace the old `claudeline doctor` banner.
+    expect(printed).toContain("Diagnostics");
+    expect(printed).toContain("Configuration");
+    expect(printed).toContain("Health");
+    // Tree-style continuation chars frame each section.
+    expect(printed).toContain("├");
+    expect(printed).toContain("└");
+    // Per-check facts still reach the user.
+    expect(printed).toContain("Version: claudeline");
     expect(printed).toContain("statusLine wired");
-    expect(printed).toContain("Cache directory exists");
     expect(printed).toContain("Summary:");
     expect(printed).toContain("0 warnings");
     expect(printed).toContain("0 errors");
   });
 
-  test("warning case includes the indented action item", () => {
+  test("warning case renders the issue block with a tree-style fix", () => {
     const env = happyEnv({
       envVars: { CLAUDE_CODE_EFFORT_LEVEL: "max" },
     });
-    const report = runDoctor(env);
-    const printed = stripAnsi(printReport(report));
+    const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
+    // Warning bubbles out of Configuration into its own block below.
+    expect(printed).toContain("⚠");
     expect(printed).toContain("CLAUDE_CODE_EFFORT_LEVEL=max");
-    expect(printed).toContain("-> ");
+    // The fix is rendered as tree branches, not the old `->` arrow.
     expect(printed).toContain("/model");
+    expect(printed).not.toContain("-> ");
   });
 
-  test("status icon prefixes are present for each line", () => {
+  test("warn/error icons replace the old emoji prefixes", () => {
     const env = happyEnv({
       envVars: { CLAUDE_CODE_EFFORT_LEVEL: "max" },
+      // Unknown effortLevel forces an error.
+      readSettings: () => ({
+        effortLevel: "ultra",
+        statusLine: { type: "command", command: "claudeline render" },
+      }),
     });
-    const report: DoctorReport = runDoctor(env);
-    const printed = printReport(report);
-    expect(printed).toContain("✅");
-    expect(printed).toContain("⚠️");
+    const printed = printReport(runDoctor(env));
+    expect(printed).toContain("⚠");
+    expect(printed).toContain("✗");
+    // Old emoji icons removed from the tree-style output.
+    expect(printed).not.toContain("✅");
+    expect(printed).not.toContain("❌");
   });
 
-  test("error icon present on error case", () => {
-    const env = happyEnv({ readSettings: () => ({}) });
-    const report = runDoctor(env);
-    const printed = printReport(report);
-    expect(printed).toContain("❌");
+  test("color: false strips ANSI escape sequences", () => {
+    const report = runDoctor(happyEnv());
+    const noColor = printReport(report, { color: false });
+    // No ESC[ sequences when color is disabled (NO_COLOR / dumb / pipe).
+    expect(noColor).not.toMatch(/\x1b\[/);
+  });
+
+  test("singular vs plural words in the summary line", () => {
+    // 0 warnings, 0 errors.
+    const happy = stripAnsi(printReport(runDoctor(happyEnv()), { color: false }));
+    expect(happy).toContain("0 errors");
+    expect(happy).toContain("0 warnings");
+
+    // Exactly one warning.
+    const oneWarn = stripAnsi(
+      printReport(
+        runDoctor(happyEnv({ envVars: { CLAUDE_CODE_EFFORT_LEVEL: "max" } })),
+        { color: false },
+      ),
+    );
+    expect(oneWarn).toContain("1 warning");
+    expect(oneWarn).not.toContain("1 warnings");
   });
 });

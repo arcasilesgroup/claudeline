@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import * as z from "zod/mini";
-import { palette, paint, RESET, style } from "./ansi.js";
+import { palette, RESET, style } from "./ansi.js";
 import { adoptCachedUsage } from "./cli-shared.js";
 import { statuslineInputSchema } from "./schemas.js";
 import { readSettingsFile } from "./settings.js";
@@ -33,7 +33,18 @@ export interface DoctorLine {
   fix?: string;
 }
 
+export interface DoctorSection {
+  // Section title rendered bold at the top of the group (e.g. "Diagnostics").
+  title: string;
+  lines: DoctorLine[];
+}
+
 export interface DoctorReport {
+  // Grouped, display-oriented view: each section renders as a tree.
+  // Tests can still flatten across sections via `lines` below.
+  sections: DoctorSection[];
+  // Flat view across all sections. Preserves the contract of pre-0.3
+  // tests that walked `report.lines` directly.
   lines: DoctorLine[];
   summary: { ok: number; warnings: number; errors: number };
 }
@@ -49,6 +60,7 @@ export interface DoctorEnv {
   tmpdir: string;
   userInfo: { uid?: number };
   platform: NodeJS.Platform;
+  arch: NodeJS.Architecture;
   // FS probes (env-injected so tests don't touch real fs).
   existsSync(path: string): boolean;
   // POSIX permissions are returned as the lower 9 bits (`0o700` etc.).
@@ -305,19 +317,40 @@ export function checkEngine(env: DoctorEnv): DoctorLine {
   return { status: "info", message: `Engine: ${detail}` };
 }
 
-// Compose all checks. Order matters: it's the order the user sees.
-export function runDoctor(env: DoctorEnv): DoctorReport {
-  const lines: DoctorLine[] = [
-    checkStatusLine(env),
-    checkCacheDirPerms(env),
-    checkEffortLevelEnv(env),
-    checkEffortLevelSetting(env),
-    checkStdinSchema(),
-    checkCacheShape(env),
-    checkStateShape(env),
+// Diagnostics block is pure info — facts about the running environment.
+// Composed inline so we don't grow the per-check public surface for
+// trivial constants. Tests exercise these via `runDoctor` composition.
+function diagnosticsLines(env: DoctorEnv): DoctorLine[] {
+  return [
+    { status: "info", message: `Version: claudeline ${VERSION}` },
     checkEngine(env),
+    { status: "info", message: `Platform: ${env.platform}-${env.arch}` },
+    { status: "info", message: `Cache directory: ${cacheDirFor(env)}` },
+  ];
+}
+
+// Compose all checks into sections. Section order is the visual order
+// the user sees: facts → settings → operational health.
+export function runDoctor(env: DoctorEnv): DoctorReport {
+  const sections: DoctorSection[] = [
+    { title: "Diagnostics", lines: diagnosticsLines(env) },
+    {
+      title: "Configuration",
+      lines: [
+        checkStatusLine(env),
+        checkEffortLevelEnv(env),
+        checkEffortLevelSetting(env),
+        checkCacheDirPerms(env),
+        checkStdinSchema(),
+      ],
+    },
+    {
+      title: "Health",
+      lines: [checkCacheShape(env), checkStateShape(env)],
+    },
   ];
 
+  const lines = sections.flatMap((s) => s.lines);
   const summary = lines.reduce(
     (acc, line) => {
       if (line.status === "ok") acc.ok += 1;
@@ -328,45 +361,94 @@ export function runDoctor(env: DoctorEnv): DoctorReport {
     { ok: 0, warnings: 0, errors: 0 },
   );
 
-  return { lines, summary };
+  return { sections, lines, summary };
 }
 
 // --- Formatting -----------------------------------------------------
+//
+// Output style mirrors `claude doctor` and the conventions in
+// clig.dev: bold section titles, tree branches via U+251C / U+2514,
+// issues surfaced in their own block beneath the sections (eye is
+// drawn to the end of the output, per clig.dev). NO_COLOR is honored
+// when the cli's `printReport({ color: false })` opt-out is wired.
 
-const ICONS: Record<DoctorStatus, string> = {
-  ok: "✅",
-  warn: "⚠️ ",
-  error: "❌",
-  // info gets a neutral bullet so it visually sits below ok lines.
-  info: "ℹ️ ",
+// U+251C, U+2514, U+2500. BMP box-drawing chars; render in any
+// modern monospace terminal font without a NerdFont.
+const TREE_BRANCH = "├";
+const TREE_LAST = "└";
+const TREE_RULE = "─";
+
+const ISSUE_ICON: Record<"warn" | "error", string> = {
+  warn: "⚠",
+  error: "✗",
 };
 
-const COLORS: Record<DoctorStatus, string> = {
-  ok: palette.green,
+const ISSUE_COLOR: Record<"warn" | "error", string> = {
   warn: palette.yellow,
   error: palette.red,
-  info: palette.cyan,
 };
 
-export function printReport(report: DoctorReport): string {
+export interface PrintReportOptions {
+  // Default true. Pass false to strip ANSI for NO_COLOR / pipes / dumb
+  // terminals (cli.ts decides based on env + isTTY).
+  color?: boolean;
+}
+
+export function printReport(
+  report: DoctorReport,
+  opts: PrintReportOptions = {},
+): string {
+  const color = opts.color !== false;
+  const c = (open: string, body: string): string =>
+    color ? `${open}${body}${RESET}` : body;
+
   const out: string[] = [];
-  out.push(`${style.bold}claudeline doctor ${VERSION}${RESET}`);
+  // Top rule — visual anchor that the report has begun. clig.dev:
+  // "Bold headings make it much easier to scan."
+  out.push(c(style.dim, TREE_RULE.repeat(72)));
   out.push("");
-  for (const line of report.lines) {
-    const icon = ICONS[line.status];
-    const colored = paint(line.message, COLORS[line.status]);
-    out.push(`${icon} ${colored}`);
-    if (line.fix) {
-      for (const fixLine of line.fix.split("\n")) {
-        out.push(`   ${style.dim}-> ${fixLine}${RESET}`);
-      }
-    }
+
+  // Render each section's OK/info lines as tree leaves. Warn/error
+  // lines bubble out to the issues block below — the eye lands there.
+  for (const section of report.sections) {
+    const leaves = section.lines.filter(
+      (l) => l.status === "ok" || l.status === "info",
+    );
+    if (leaves.length === 0) continue;
+    out.push(`  ${c(style.bold, section.title)}`);
+    leaves.forEach((line, i) => {
+      const branch = i === leaves.length - 1 ? TREE_LAST : TREE_BRANCH;
+      out.push(`  ${c(style.dim, branch)} ${line.message}`);
+    });
+    out.push("");
   }
-  out.push("");
-  const { ok, warnings, errors } = report.summary;
-  out.push(
-    `${style.bold}Summary:${RESET} ${ok} OK, ${warnings} warnings, ${errors} errors.`,
+
+  // Issues block. Order preserves the section traversal so the user
+  // can correlate a warning back to where the fact lives.
+  const issues = report.lines.filter(
+    (l) => l.status === "warn" || l.status === "error",
   );
+  for (const issue of issues) {
+    const status = issue.status as "warn" | "error";
+    const icon = ISSUE_ICON[status];
+    const tone = ISSUE_COLOR[status];
+    out.push(`  ${c(tone, icon)} ${c(tone, issue.message)}`);
+    if (issue.fix) {
+      const fixLines = issue.fix.split("\n");
+      fixLines.forEach((fl, i) => {
+        const branch = i === fixLines.length - 1 ? TREE_LAST : TREE_BRANCH;
+        out.push(`    ${c(style.dim, `${branch} ${fl}`)}`);
+      });
+    }
+    out.push("");
+  }
+
+  // Summary, formatted to read as a sentence.
+  const { ok, warnings, errors } = report.summary;
+  const errs = `${errors} ${errors === 1 ? "error" : "errors"}`;
+  const warns = `${warnings} ${warnings === 1 ? "warning" : "warnings"}`;
+  out.push(`  ${c(style.bold, "Summary:")} ${errs}, ${warns}, ${ok} ok`);
+
   return out.join("\n");
 }
 

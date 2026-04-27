@@ -175,16 +175,19 @@ describe("cli", () => {
     expect(stripAnsi(r.stdout)).not.toContain("ms");
   });
 
-  test("doctor exits 0, contains a Summary line and a recognizable check label", () => {
+  test("doctor exits 0, renders sections + summary + version diagnostic", () => {
     const r = run(["doctor"]);
     expect(r.status).toBe(0);
     const plain = stripAnsi(r.stdout);
     expect(plain).toContain("Summary:");
-    // statusLine is the first check; this label should appear regardless
-    // of whether the dev environment passes or warns.
+    expect(plain).toContain("Diagnostics");
+    expect(plain).toContain("Configuration");
+    // Version-of-claudeline replaces the old "claudeline doctor X" banner;
+    // it still tells the user what's running.
+    expect(plain).toContain("Version: claudeline");
+    // statusLine is the first Configuration check; the label appears
+    // regardless of whether the dev environment passes or warns.
     expect(plain.toLowerCase()).toContain("settings");
-    // Doctor banner identifies itself.
-    expect(plain).toContain("claudeline doctor");
   });
 
   test("doctor warns about CLAUDE_CODE_EFFORT_LEVEL when set in env", () => {
