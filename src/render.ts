@@ -1,15 +1,25 @@
+import type { FetchUsageResult } from "./api.js";
 import { RESET, style } from "./ansi.js";
 import type { GitInfo } from "./git.js";
+import type { GlyphSet } from "./glyphs.js";
+import { pricingFor } from "./pricing.js";
 import type { Settings, StatuslineInput, UsageApiResponse } from "./schemas.js";
 import {
   contextSegment,
+  costSegment,
   directorySegment,
   effortSegment,
+  latencySegment,
   modelSegment,
   sessionSegment,
   thinkingSegment,
 } from "./segments.js";
-import { parseIsoToEpoch } from "./time.js";
+import {
+  type RateSample,
+  type RateState,
+  projectMinutes,
+} from "./state.js";
+import { formatEpoch, parseIsoToEpoch } from "./time.js";
 import {
   type ExtraUsage,
   type RateLimitsData,
@@ -17,7 +27,11 @@ import {
   extractRateLimitsFromInput,
   renderRateLines,
 } from "./usage.js";
-import { formatEpoch } from "./time.js";
+
+export interface CachedUsage {
+  data: UsageApiResponse;
+  latencyMs: number;
+}
 
 export interface RenderDeps {
   readSettings(): Settings;
@@ -26,14 +40,20 @@ export interface RenderDeps {
   timeZone?: string;
   now(): number;
   skipPermissions: boolean;
+  glyphs: GlyphSet;
   loadToken(): string | undefined;
-  fetchUsage(token: string): Promise<UsageApiResponse | undefined>;
-  cacheLoad(): UsageApiResponse | undefined;
-  cacheSave(data: UsageApiResponse): void;
+  fetchUsage(token: string): Promise<FetchUsageResult | undefined>;
+  cacheLoad(): CachedUsage | undefined;
+  cacheSave(data: CachedUsage): void;
+  loadState(): RateState;
+  saveState(state: RateState): void;
 }
 
-const SEPARATOR = ` ${style.dim}│${RESET} `;
 const BAR_WIDTH = 10;
+// Fallback when stdin omits context_window_size — matches the legacy
+// non-1M Claude default. If the input has zero tokens, the segment
+// renders 0% regardless, so an off-by-default isn't catastrophic.
+const DEFAULT_CONTEXT_WINDOW = 200_000;
 
 export async function renderStatusline(
   input: StatuslineInput,
@@ -41,45 +61,62 @@ export async function renderStatusline(
 ): Promise<string> {
   const settings = deps.readSettings();
   const cwd = pickCwd(input);
-  const gitInfo = cwd ? deps.getGitInfo(cwd) : { branch: undefined, dirty: false };
+  const gitInfo = cwd
+    ? deps.getGitInfo(cwd)
+    : { branch: undefined, dirty: false, worktree: false };
   const sessionElapsed = computeSessionElapsed(input, deps.now);
   const effortLevel = input.effort?.level ?? settings.effortLevel ?? undefined;
   const thinkingEnabled =
     input.thinking?.enabled ?? settings.alwaysThinkingEnabled ?? false;
+  const glyphs = deps.glyphs;
+  const separator = ` ${style.dim}${glyphs.separator}${RESET} `;
 
   const line1Parts: string[] = [
     modelSegment(input.model?.display_name),
-    contextSegment(buildContextInput(input)),
-    directorySegment({
-      cwd: cwd ?? "",
-      ...(gitInfo.branch ? { gitBranch: gitInfo.branch } : {}),
-      gitDirty: gitInfo.dirty,
-      skipPermissions: deps.skipPermissions,
-    }),
+    contextSegment(buildContextInput(input), glyphs),
+    directorySegment(
+      {
+        cwd: cwd ?? "",
+        ...(gitInfo.branch ? { gitBranch: gitInfo.branch } : {}),
+        gitDirty: gitInfo.dirty,
+        gitWorktree: gitInfo.worktree,
+        skipPermissions: deps.skipPermissions,
+      },
+      glyphs,
+    ),
   ];
 
-  const sessionStr = sessionSegment(sessionElapsed);
+  const cost = costSegment(buildCostInput(input), pricingFor(input.model?.id), glyphs);
+  if (cost) line1Parts.push(cost);
+
+  const sessionStr = sessionSegment(sessionElapsed, glyphs);
   if (sessionStr) line1Parts.push(sessionStr);
 
-  const effortStr = effortSegment(effortLevel);
-  const thinkingStr = thinkingSegment(thinkingEnabled);
+  const effortStr = effortSegment(effortLevel, glyphs);
+  const thinkingStr = thinkingSegment(thinkingEnabled, glyphs);
   if (effortStr || thinkingStr) {
-    line1Parts.push(
-      [effortStr, thinkingStr].filter((s) => s !== "").join(" "),
-    );
+    line1Parts.push(joinNonEmpty(" ", effortStr, thinkingStr));
   }
 
-  const line1 = line1Parts.join(SEPARATOR);
+  const line1 = line1Parts.join(separator);
 
-  const rateData = await gatherRateLimits(input, deps);
-  const lines2plus = renderRateLines(rateData, {
+  const { rateData, latencyMs } = await gatherRateLimits(input, deps);
+  const latencyStr = latencySegment(latencyMs, glyphs);
+  const lines: string[] = [latencyStr ? `${line1}${separator}${latencyStr}` : line1];
+
+  const rateLines = renderRateLines(rateData, {
     use24h: deps.detect24Hour,
     ...(deps.timeZone ? { timeZone: deps.timeZone } : {}),
     barWidth: BAR_WIDTH,
+    glyphs,
   });
+  if (rateLines) lines.push("", rateLines);
 
-  if (!lines2plus) return line1;
-  return `${line1}\n\n${lines2plus}`;
+  return lines.join("\n");
+}
+
+function joinNonEmpty(sep: string, ...parts: string[]): string {
+  return parts.filter((p) => p !== "").join(sep);
 }
 
 function pickCwd(input: StatuslineInput): string | undefined {
@@ -106,7 +143,7 @@ function buildContextInput(input: StatuslineInput) {
     cacheReadTokens: number;
     usedPercentage?: number;
   } = {
-    windowSize: cw?.context_window_size ?? 200_000,
+    windowSize: cw?.context_window_size ?? DEFAULT_CONTEXT_WINDOW,
     inputTokens: usage?.input_tokens ?? 0,
     cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
     cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
@@ -117,31 +154,86 @@ function buildContextInput(input: StatuslineInput) {
   return result;
 }
 
+function buildCostInput(input: StatuslineInput) {
+  const usage = input.context_window?.current_usage;
+  return {
+    modelId: input.model?.id ?? input.model?.display_name ?? undefined,
+    inputTokens: usage?.input_tokens ?? 0,
+    cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
+  };
+}
+
 async function gatherRateLimits(
   input: StatuslineInput,
   deps: RenderDeps,
-): Promise<RateLimitsData> {
+): Promise<{ rateData: RateLimitsData; latencyMs: number | undefined }> {
   const fromStdin = extractRateLimitsFromInput(input);
   if (fromStdin) {
-    return {
-      fiveHour: fromStdin.fiveHour,
-      sevenDay: fromStdin.sevenDay,
-      extra: undefined,
+    const cached = deps.cacheLoad();
+    const extra = cached ? adaptExtra(cached.data.extra_usage, deps) : undefined;
+    const data: RateLimitsData = {
+      fiveHour: projectAndPersistFiveHour(fromStdin.fiveHour, deps),
+      sevenDay: fromStdin.sevenDay ?? undefined,
+      extra,
     };
+    return { rateData: data, latencyMs: undefined };
   }
 
-  let usage = deps.cacheLoad();
-  if (!usage) {
+  // Latency surfaces only on the render that *fetches* — once it's in
+  // cache, subsequent renders shouldn't keep showing a stale "API is
+  // slow" badge for up to 60s. The badge means "we just timed a slow
+  // call", not "the API was slow at some point in the last minute".
+  let cached = deps.cacheLoad();
+  let latencyMs: number | undefined;
+  if (!cached) {
     const token = deps.loadToken();
     if (token) {
-      usage = await deps.fetchUsage(token);
-      if (usage) deps.cacheSave(usage);
+      const fetched = await deps.fetchUsage(token);
+      if (fetched) {
+        cached = { data: fetched.data, latencyMs: fetched.latencyMs };
+        deps.cacheSave(cached);
+        latencyMs = fetched.latencyMs;
+      }
     }
   }
-  if (!usage) {
-    return { fiveHour: undefined, sevenDay: undefined, extra: undefined };
+  if (!cached) {
+    return {
+      rateData: { fiveHour: undefined, sevenDay: undefined, extra: undefined },
+      latencyMs: undefined,
+    };
   }
-  return adaptApiUsage(usage, deps);
+  const adapted = adaptApiUsage(cached.data, deps);
+  return {
+    rateData: {
+      ...adapted,
+      fiveHour: projectAndPersistFiveHour(adapted.fiveHour, deps),
+    },
+    latencyMs,
+  };
+}
+
+// Loads the previous 5-hour sample, computes a projection if usable,
+// and persists the current sample for the NEXT render. We keep all
+// three steps in one helper so callers don't accidentally double-load
+// (the read-modify-write is implicitly atomic per render).
+function projectAndPersistFiveHour(
+  window: RateLimitWindow | undefined,
+  deps: RenderDeps,
+): RateLimitWindow | undefined {
+  if (!window) return undefined;
+  const state = deps.loadState();
+  const current: RateSample = {
+    pct: window.pct,
+    epoch: Math.floor(deps.now() / 1000),
+  };
+  const projection = projectMinutes(state.fiveHour, current);
+
+  deps.saveState({ ...state, fiveHour: current });
+
+  if (projection === undefined) return window;
+  return { ...window, projectionMinutes: projection };
 }
 
 function adaptApiUsage(

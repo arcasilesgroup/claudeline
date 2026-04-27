@@ -1,20 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { nextMonthFirstEpoch, renderStatusline, type RenderDeps } from "../src/render.js";
+import { glyphsFor } from "../src/glyphs.js";
+import {
+  type CachedUsage,
+  type RenderDeps,
+  nextMonthFirstEpoch,
+  renderStatusline,
+} from "../src/render.js";
+import type { RateState } from "../src/state.js";
 
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 function mockDeps(overrides: Partial<RenderDeps> = {}): RenderDeps {
+  let stateStore: RateState = {};
   return {
     readSettings: () => ({}),
-    getGitInfo: () => ({ branch: undefined, dirty: false }),
+    getGitInfo: () => ({ branch: undefined, dirty: false, worktree: false }),
     detect24Hour: true,
     timeZone: "Europe/Madrid",
     now: () => new Date("2026-04-26T20:00:00Z").getTime(),
     skipPermissions: false,
+    glyphs: glyphsFor("emoji"),
     fetchUsage: async () => undefined,
     loadToken: () => undefined,
     cacheLoad: () => undefined,
     cacheSave: () => {},
+    loadState: () => stateStore,
+    saveState: (s) => {
+      stateStore = s;
+    },
     ...overrides,
   };
 }
@@ -53,10 +66,20 @@ describe("renderStatusline", () => {
     const out = await renderStatusline(
       { cwd: "/p/repo" },
       mockDeps({
-        getGitInfo: () => ({ branch: "feature/x", dirty: true }),
+        getGitInfo: () => ({ branch: "feature/x", dirty: true, worktree: false }),
       }),
     );
     expect(stripAnsi(out)).toContain("repo (feature/x*)");
+  });
+
+  test("worktree marker shows when in a linked worktree", async () => {
+    const out = await renderStatusline(
+      { cwd: "/p/repo" },
+      mockDeps({
+        getGitInfo: () => ({ branch: "feat/x", dirty: false, worktree: true }),
+      }),
+    );
+    expect(stripAnsi(out)).toContain("⎇:feat/x");
   });
 
   test("falls back to settings.json effortLevel when stdin empty", async () => {
@@ -102,14 +125,17 @@ describe("renderStatusline", () => {
         fetchUsage: async (tok) => {
           fetchedWithToken = tok;
           return {
-            five_hour: {
-              utilization: 7,
-              resets_at: "2026-04-26T22:30:00Z",
+            data: {
+              five_hour: {
+                utilization: 7,
+                resets_at: "2026-04-26T22:30:00Z",
+              },
+              seven_day: {
+                utilization: 21,
+                resets_at: "2026-05-01T22:00:00Z",
+              },
             },
-            seven_day: {
-              utilization: 21,
-              resets_at: "2026-05-01T22:00:00Z",
-            },
+            latencyMs: 230,
           };
         },
       }),
@@ -166,12 +192,15 @@ describe("renderStatusline", () => {
         now: () => new Date("2026-04-26T20:00:00Z").getTime(),
         loadToken: () => "tok",
         fetchUsage: async () => ({
-          extra_usage: {
-            is_enabled: true,
-            utilization: 25,
-            used_credits: 250,
-            monthly_limit: 1000,
+          data: {
+            extra_usage: {
+              is_enabled: true,
+              utilization: 25,
+              used_credits: 250,
+              monthly_limit: 1000,
+            },
           },
+          latencyMs: 100,
         }),
       }),
     );
@@ -181,14 +210,185 @@ describe("renderStatusline", () => {
     expect(plain).toContain("$10.00");
     expect(plain).toContain("1 may");
   });
+
+  test("renders cost segment when model has known pricing", async () => {
+    const out = await renderStatusline(
+      {
+        model: { id: "claude-sonnet-4-6", display_name: "Sonnet 4.6" },
+        cwd: "/p/repo",
+        context_window: {
+          current_usage: {
+            input_tokens: 100_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 10_000,
+          },
+        },
+      },
+      mockDeps(),
+    );
+    expect(stripAnsi(out)).toContain("💸");
+  });
+
+  test("hides cost segment when model has no pricing", async () => {
+    const out = await renderStatusline(
+      {
+        model: { id: "gpt-4" },
+        cwd: "/p/repo",
+        context_window: {
+          current_usage: { input_tokens: 100_000 },
+        },
+      },
+      mockDeps(),
+    );
+    expect(stripAnsi(out)).not.toContain("💸");
+  });
+
+  test("hides cost segment when token totals are zero with valid pricing", async () => {
+    const out = await renderStatusline(
+      {
+        model: { id: "claude-sonnet-4-6" },
+        cwd: "/p",
+        context_window: {
+          current_usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      },
+      mockDeps(),
+    );
+    expect(stripAnsi(out)).not.toContain("💸");
+  });
+
+  test("cost segment sums all four token columns through real pricing", async () => {
+    const out = await renderStatusline(
+      {
+        model: { id: "claude-sonnet-4-6" },
+        cwd: "/p",
+        context_window: {
+          current_usage: {
+            input_tokens: 1_000_000,
+            cache_creation_input_tokens: 1_000_000,
+            cache_read_input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+          },
+        },
+      },
+      mockDeps(),
+    );
+    // Sonnet: 1M*$3 + 1M*$3.75 + 1M*$0.30 + 1M*$15 = $22.05
+    expect(stripAnsi(out)).toContain("$22.05");
+  });
+
+  test("renders latency badge when API latency exceeds threshold", async () => {
+    const out = await renderStatusline(
+      { cwd: "/p/repo" },
+      mockDeps({
+        loadToken: () => "tok",
+        fetchUsage: async () => ({
+          data: {
+            five_hour: { utilization: 5, resets_at: "2026-04-26T22:30:00Z" },
+          },
+          latencyMs: 1500,
+        }),
+      }),
+    );
+    expect(stripAnsi(out)).toContain("🐢 1500ms");
+  });
+
+  test("does not render latency badge below threshold", async () => {
+    const out = await renderStatusline(
+      { cwd: "/p/repo" },
+      mockDeps({
+        loadToken: () => "tok",
+        fetchUsage: async () => ({
+          data: {
+            five_hour: { utilization: 5, resets_at: "2026-04-26T22:30:00Z" },
+          },
+          latencyMs: 200,
+        }),
+      }),
+    );
+    expect(stripAnsi(out)).not.toContain("ms");
+  });
+
+  test("rate-limit projection persists across renders", async () => {
+    let savedState: RateState = {};
+    const baseDeps = (now: number): RenderDeps => ({
+      ...mockDeps(),
+      now: () => now,
+      loadState: () => savedState,
+      saveState: (s) => {
+        savedState = s;
+      },
+    });
+
+    // First render at t=0, 50% used. No previous sample → no projection.
+    const out1 = await renderStatusline(
+      {
+        cwd: "/p",
+        rate_limits: {
+          five_hour: { used_percentage: 50, resets_at: "2026-04-26T22:30:00Z" },
+        },
+      },
+      baseDeps(1_000_000_000),
+    );
+    expect(stripAnsi(out1)).not.toMatch(/~\d+m/);
+    expect(savedState.fiveHour?.pct).toBe(50);
+
+    // Second render 60s later, 60% used → +10% / 60s = 10%/min, 40 left → 4 min.
+    const out = await renderStatusline(
+      {
+        cwd: "/p",
+        rate_limits: {
+          five_hour: { used_percentage: 60, resets_at: "2026-04-26T22:30:00Z" },
+        },
+      },
+      baseDeps(1_000_060_000),
+    );
+    expect(stripAnsi(out)).toContain("~4m");
+  });
+
+  test("projectAndPersistFiveHour skipped when there is no rate window", async () => {
+    let loadCount = 0;
+    let saveCount = 0;
+    let store: RateState = {};
+    await renderStatusline(
+      { cwd: "/p" }, // no rate_limits, no token
+      mockDeps({
+        loadState: () => {
+          loadCount++;
+          return store;
+        },
+        saveState: (s) => {
+          saveCount++;
+          store = s;
+        },
+      }),
+    );
+    expect(loadCount).toBe(0);
+    expect(saveCount).toBe(0);
+  });
+
+  test("plain glyph mode renders ASCII bar cells", async () => {
+    const out = await renderStatusline(
+      {
+        cwd: "/p",
+        rate_limits: {
+          five_hour: { used_percentage: 50, resets_at: "2026-04-26T22:30:00Z" },
+        },
+      },
+      mockDeps({ glyphs: glyphsFor("plain") }),
+    );
+    const plain = stripAnsi(out);
+    expect(plain).toContain("#####");
+    expect(plain).toContain(".....");
+    expect(plain).toContain("ctx:");
+  });
 });
 
 describe("nextMonthFirstEpoch", () => {
   test("UTC midnight crossover: server in LA, user in Madrid, May 1 in TZ but Apr 30 server", () => {
-    // 2026-05-01T00:30:00Z = Apr 30 17:30 LA, May 1 02:30 Madrid
     const ms = new Date("2026-05-01T00:30:00Z").getTime();
     const epochMadrid = nextMonthFirstEpoch(ms, "Europe/Madrid");
-    // In Madrid it's May 1 → next month is June 1
     expect(epochMadrid).toBe(Math.floor(Date.UTC(2026, 5, 1) / 1000));
   });
 
@@ -201,7 +401,10 @@ describe("nextMonthFirstEpoch", () => {
   test("no timeZone falls back to server-local", () => {
     const ms = new Date("2026-04-15T12:00:00Z").getTime();
     const epoch = nextMonthFirstEpoch(ms, undefined);
-    const expected = new Date(2026, 4, 1); // May 1 server-local
+    const expected = new Date(2026, 4, 1);
     expect(epoch).toBe(Math.floor(expected.getTime() / 1000));
   });
 });
+
+// Re-export helper type so the linter sees it used.
+type _CachedUsage = CachedUsage;

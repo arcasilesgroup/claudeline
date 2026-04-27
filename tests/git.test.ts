@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getGitInfo, parseGitStatus } from "../src/git.js";
+import { getGitInfo, isWorktreeGitDir, parseGitStatus } from "../src/git.js";
 
 const isolatedEnv = {
   ...process.env,
@@ -74,6 +74,24 @@ describe("parseGitStatus", () => {
   });
 });
 
+describe("isWorktreeGitDir", () => {
+  test("main worktree gitdir is .git or absolute /.git", () => {
+    expect(isWorktreeGitDir(".git")).toBe(false);
+    expect(isWorktreeGitDir("/Users/x/repo/.git")).toBe(false);
+  });
+
+  test("linked worktree contains .git/worktrees/<name>", () => {
+    expect(isWorktreeGitDir("/Users/x/repo/.git/worktrees/feature")).toBe(true);
+    expect(isWorktreeGitDir(".git/worktrees/foo")).toBe(true);
+  });
+
+  test("Windows separators recognized", () => {
+    expect(
+      isWorktreeGitDir("C:\\Users\\x\\repo\\.git\\worktrees\\feature"),
+    ).toBe(true);
+  });
+});
+
 describe("getGitInfo", () => {
   test("returns no branch outside a git repo", () => {
     const tmp = mkdtempSync(join(tmpdir(), "claudeline-nogit-"));
@@ -81,6 +99,7 @@ describe("getGitInfo", () => {
       const info = getGitInfo(tmp);
       expect(info.branch).toBeUndefined();
       expect(info.dirty).toBe(false);
+      expect(info.worktree).toBe(false);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -93,6 +112,7 @@ describe("getGitInfo", () => {
       const info = getGitInfo(tmp);
       expect(info.branch).toBe("main");
       expect(info.dirty).toBe(true);
+      expect(info.worktree).toBe(false);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -107,6 +127,7 @@ describe("getGitInfo", () => {
       const info = getGitInfo(tmp);
       expect(info.branch).toBe("main");
       expect(info.dirty).toBe(false);
+      expect(info.worktree).toBe(false);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -124,6 +145,27 @@ describe("getGitInfo", () => {
       expect(info.dirty).toBe(false);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("detects linked worktree", () => {
+    const tmp = initRepo();
+    const wtRoot = `${tmp}-wt`;
+    try {
+      writeFileSync(join(tmp, "a.txt"), "hello");
+      spawnSync("git", ["add", "."], { cwd: tmp });
+      spawnSync("git", ["commit", "-q", "-m", "init"], { cwd: tmp });
+      spawnSync(
+        "git",
+        ["worktree", "add", "-b", "feat/x", wtRoot],
+        { cwd: tmp, env: isolatedEnv },
+      );
+      const info = getGitInfo(wtRoot);
+      expect(info.branch).toBe("feat/x");
+      expect(info.worktree).toBe(true);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+      rmSync(wtRoot, { recursive: true, force: true });
     }
   });
 });

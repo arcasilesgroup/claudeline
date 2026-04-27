@@ -113,4 +113,90 @@ describe("cli", () => {
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe("Claude");
   });
+
+  test("--version reports a 0.2.x version", () => {
+    const r = run(["--version"]);
+    expect(r.stdout.trim()).toMatch(/^0\.2\.\d+$/);
+  });
+
+  test("CLAUDELINE_GLYPHS=plain switches glyphs to ASCII", () => {
+    const r = spawnSync("node", [dist, "render"], {
+      input:
+        '{"model":{"display_name":"Opus"},"cwd":"/tmp","rate_limits":{"five_hour":{"used_percentage":50,"resets_at":"2026-04-26T22:30:00Z"}}}',
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDELINE_GLYPHS: "plain" },
+    });
+    expect(r.status).toBe(0);
+    const plain = stripAnsi(r.stdout);
+    expect(plain).toContain("ctx:");
+    expect(plain).toContain("#");
+    expect(plain).not.toContain("✍️");
+  });
+
+  test("render emits cost segment for known model id", () => {
+    const r = run(
+      ["render"],
+      JSON.stringify({
+        model: { id: "claude-sonnet-4-6", display_name: "Sonnet 4.6" },
+        cwd: "/tmp",
+        context_window: {
+          current_usage: { input_tokens: 500_000, output_tokens: 50_000 },
+        },
+      }),
+    );
+    expect(stripAnsi(r.stdout)).toMatch(/\$\d+\.\d{2,3}/);
+  });
+
+  test("render does not surface latency badge when stdin carries rate limits", () => {
+    const r = run(
+      ["render"],
+      JSON.stringify({
+        model: { display_name: "Opus" },
+        cwd: "/tmp",
+        rate_limits: {
+          five_hour: { used_percentage: 5, resets_at: "2026-04-26T22:30:00Z" },
+        },
+      }),
+    );
+    expect(stripAnsi(r.stdout)).not.toContain("ms");
+  });
+});
+
+describe("adoptCachedUsage (cache-shape migration)", () => {
+  // Lazy import so the cli module only loads when this describe runs;
+  // keeps the spawn-based tests above isolated.
+  test("rejects pre-0.2 UsageApiResponse-shaped cache (no .data wrapper)", async () => {
+    const { adoptCachedUsage } = await import("../src/cli.js");
+    const stale = {
+      five_hour: { utilization: 5, resets_at: "2026-04-26T22:30:00Z" },
+    };
+    expect(adoptCachedUsage(stale)).toBeUndefined();
+  });
+
+  test("accepts 0.2 cache shape", async () => {
+    const { adoptCachedUsage } = await import("../src/cli.js");
+    const fresh = {
+      data: { five_hour: { utilization: 5 } },
+      latencyMs: 100,
+    };
+    expect(adoptCachedUsage(fresh)).toEqual(fresh);
+  });
+
+  test("rejects null, primitives, arrays, and missing data field", async () => {
+    const { adoptCachedUsage } = await import("../src/cli.js");
+    expect(adoptCachedUsage(null)).toBeUndefined();
+    expect(adoptCachedUsage("string")).toBeUndefined();
+    expect(adoptCachedUsage(42)).toBeUndefined();
+    expect(adoptCachedUsage([])).toBeUndefined();
+    expect(adoptCachedUsage({ data: null })).toBeUndefined();
+    expect(adoptCachedUsage({ data: 42 })).toBeUndefined();
+    expect(adoptCachedUsage({ data: [] })).toBeUndefined();
+  });
+
+  test("forward-compatibly defaults missing latencyMs to 0", async () => {
+    const { adoptCachedUsage } = await import("../src/cli.js");
+    const partial = { data: { five_hour: {} } };
+    const adopted = adoptCachedUsage(partial);
+    expect(adopted?.latencyMs).toBe(0);
+  });
 });

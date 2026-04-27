@@ -1,4 +1,5 @@
 import { colorForPercentage, palette, RESET, style } from "./ansi.js";
+import type { GlyphSet } from "./glyphs.js";
 import { buildBar } from "./progress.js";
 import type { StatuslineInput } from "./schemas.js";
 import { formatEpoch, parseIsoToEpoch } from "./time.js";
@@ -6,6 +7,9 @@ import { formatEpoch, parseIsoToEpoch } from "./time.js";
 export interface RateLimitWindow {
   pct: number;
   resetEpoch: number | undefined;
+  // Projection: minutes until 100% at the current burn rate.
+  // undefined when there isn't enough history to estimate.
+  projectionMinutes?: number | undefined;
 }
 
 export interface ExtraUsage {
@@ -55,6 +59,7 @@ export interface RenderOptions {
   use24h: boolean;
   timeZone?: string;
   barWidth: number;
+  glyphs: GlyphSet;
 }
 
 export function renderRateLines(
@@ -93,10 +98,13 @@ function formatLimitLine(
   window: RateLimitWindow,
   options: RenderOptions & { timeStyle: "time" | "datetime" },
 ): string {
-  const bar = buildBar(window.pct, options.barWidth);
+  const bar = buildBar(window.pct, options.barWidth, options.glyphs);
   const pctColor = colorForPercentage(window.pct);
   const pctFmt = `${window.pct}`.padStart(3, " ");
   let line = `${palette.white}${label}${RESET} ${bar} ${pctColor}${pctFmt}%${RESET}`;
+  if (typeof window.projectionMinutes === "number") {
+    line += ` ${style.dim}~${RESET}${palette.white}${formatProjection(window.projectionMinutes)}${RESET}`;
+  }
   if (window.resetEpoch) {
     const reset = formatEpoch(window.resetEpoch, {
       style: options.timeStyle,
@@ -104,20 +112,29 @@ function formatLimitLine(
       ...(options.timeZone ? { timeZone: options.timeZone } : {}),
     });
     if (reset) {
-      line += ` ${style.dim}⟳${RESET} ${palette.white}${reset}${RESET}`;
+      line += ` ${style.dim}${options.glyphs.resetArrow}${RESET} ${palette.white}${reset}${RESET}`;
     }
   }
   return line;
 }
 
+function formatProjection(minutes: number): string {
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const remaining = minutes % 60;
+    return remaining === 0 ? `${hours}h` : `${hours}h${remaining}m`;
+  }
+  return `${minutes}m`;
+}
+
 function formatExtraLine(extra: ExtraUsage, options: RenderOptions): string {
-  const bar = buildBar(extra.pct, options.barWidth);
+  const bar = buildBar(extra.pct, options.barWidth, options.glyphs);
   const pctColor = colorForPercentage(extra.pct);
   const used = (extra.usedCents / 100).toFixed(2);
   const limit = (extra.limitCents / 100).toFixed(2);
   return (
     `${palette.white}${padLabel("extra")}${RESET} ${bar} ` +
     `${pctColor}$${used}${style.dim}/${RESET}${palette.white}$${limit}${RESET} ` +
-    `${style.dim}⟳${RESET} ${palette.white}${extra.resetLabel}${RESET}`
+    `${style.dim}${options.glyphs.resetArrow}${RESET} ${palette.white}${extra.resetLabel}${RESET}`
   );
 }

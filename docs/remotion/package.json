@@ -1,0 +1,24 @@
+{
+  "name": "claudeline-demo-remotion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Remotion project that renders the claudeline demo GIF/MP4. Isolated from the main package.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render:mp4": "remotion render src/index.ts statusline ../demo.mp4 --width=1280 --height=180",
+    "render:gif": "remotion render src/index.ts statusline ../demo.gif --codec=gif --width=1280 --height=180"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.392",
+    "@remotion/cli": "4.0.392",
+    "@remotion/renderer": "4.0.392",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.392"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.1",
+    "@types/react-dom": "19.0.2",
+    "typescript": "5.7.2"
+  }
+}

@@ -13,29 +13,52 @@ TypeScript, single binary, zero config.
   <img src="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/screenshot-active-dark.png" alt="claudeline running inside Claude Code during an active session: model name with 1M context, ✍️ context %, working directory and dirty git branch, effort glyph, thinking indicator, 5-hour and weekly rate-limit bars, and the accept-edits permission hint" width="900" />
 </p>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/docs/demo.gif" alt="claudeline animated demo: model, context %, dir+git, cost, effort, thinking, rate-limit bars filling up" width="900" />
+</p>
+
 ## Features
 
 - **Model + context %** — colored by usage threshold (green → orange → yellow → red)
-- **Working directory + git** — branch, dirty flag, optional `⚡` for `--dangerously-skip-permissions`
+- **Cost per session** — `💸 $X.XX` derived from token counts × Anthropic public pricing (Opus, Sonnet, Haiku)
+- **Working directory + git** — branch, dirty flag, worktree marker (`⎇:branch`), optional `⚡` for `--dangerously-skip-permissions`
 - **Session duration** — elapsed since session start
 - **Effort indicator** — distinct glyphs for `max`, `xhigh`, `high`, `medium`, `low`
 - **Thinking indicator** — 🧠 when extended thinking is enabled
 - **Rate limits** — 5-hour, weekly, and optional extra credits, sourced from
   Claude Code stdin first, OAuth API as fallback
+- **Rate-limit projection** — `~38m` next to the bar tells you when you'll hit 100% at the current burn rate
+- **Latency badge** — `⚡ Xms` appears when the OAuth API is slow (>1 s)
 - **Locale-aware** — 12h / 24h auto-detected, timezone from system
-- **Cross-platform** — macOS, Linux, Windows. Node ≥ 18 or Bun
+- **Glyph modes** — `CLAUDELINE_GLYPHS=emoji` (default), `nerd` (NerdFont), `plain` (ASCII for SSH/no-emoji terminals)
+- **Cross-platform** — macOS, Linux, Windows. Node ≥ 18, Bun, or one of our self-contained binaries
 
 ## Install
 
+### npm (any platform with Node ≥ 18)
+
 ```bash
-# npm
 npm install -g @arcasilesgroup/claudeline
+# or pnpm add -g @arcasilesgroup/claudeline
+# or bun install -g @arcasilesgroup/claudeline
+```
 
-# pnpm
-pnpm add -g @arcasilesgroup/claudeline
+### Homebrew (macOS, Linux)
 
-# bun
-bun install -g @arcasilesgroup/claudeline
+```bash
+brew tap arcasilesgroup/claudeline
+brew install claudeline
+```
+
+### Self-contained binary
+
+Download the right asset from the [releases page](https://github.com/arcasilesgroup/claudeline/releases/latest), make it executable, drop it on your PATH:
+
+```bash
+# example for macOS arm64
+curl -fsSL -o claudeline \
+  https://github.com/arcasilesgroup/claudeline/releases/latest/download/claudeline-darwin-arm64
+chmod +x claudeline && mv claudeline /usr/local/bin/
 ```
 
 Wire it into Claude Code:
@@ -71,10 +94,12 @@ The first line is composed of these segments, separated by `│`:
 | ---------- | --------------------------------------------------- |
 | Model      | `model.display_name` from stdin                     |
 | Context %  | `context_window` (tokens / size or used_percentage) |
-| Directory  | `cwd` basename + git branch + dirty flag            |
+| Directory  | `cwd` basename + git branch + dirty flag + worktree |
+| Cost       | `current_usage` tokens × Anthropic price for `model.id` |
 | Session    | elapsed since `session.start_time`                  |
 | Effort     | `effort.level` from stdin, fallback `effortLevel`   |
 | Thinking   | `thinking.enabled`, fallback `alwaysThinkingEnabled`|
+| Latency    | `⚡ Xms` when the OAuth API takes >1 s              |
 
 When Claude Code provides rate limits in the stdin JSON, those are used
 directly. Otherwise claudeline calls the OAuth usage API once per minute and
@@ -89,6 +114,24 @@ caches the response under the OS temp directory with `0600` permissions.
 | `high`    | ●     | magenta |
 | `medium`  | ◑     | dim     |
 | `low`     | ◔     | dim     |
+
+### Glyph modes
+
+Set the `CLAUDELINE_GLYPHS` environment variable in your shell or in
+`~/.claude/settings.json` env block:
+
+| Mode    | When to use                                                |
+| ------- | ---------------------------------------------------------- |
+| `emoji` | (default) emojis + Unicode geometric shapes                |
+| `nerd`  | Patched [NerdFont](https://www.nerdfonts.com) terminal     |
+| `plain` | SSH / `screen` / terminals without Unicode or emoji        |
+
+### Rate-limit projection
+
+When the 5-hour bar moves between two consecutive renders, claudeline
+estimates how long until you hit 100% at the current pace and renders
+`~38m` (or `~2h5m`) next to the percentage. The previous sample is
+kept under `<tmpdir>/claudeline-<uid>/state.json` (`0o600`).
 
 ### 12h vs 24h
 

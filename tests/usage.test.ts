@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { glyphsFor } from "../src/glyphs.js";
 import { extractRateLimitsFromInput, renderRateLines } from "../src/usage.js";
 import {
   loadJsonCache,
@@ -9,6 +10,7 @@ import {
 } from "../src/cache.js";
 
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+const emoji = glyphsFor("emoji");
 
 describe("extractRateLimitsFromInput", () => {
   test("reads percentages and reset epochs from stdin", () => {
@@ -53,7 +55,7 @@ describe("renderRateLines", () => {
         sevenDay: { pct: 18, resetEpoch: 1777608000 },
         extra: undefined,
       },
-      { use24h: true, timeZone: "Europe/Madrid", barWidth: 10 },
+      { use24h: true, timeZone: "Europe/Madrid", barWidth: 10, glyphs: emoji },
     );
     const plain = stripAnsi(out);
     expect(plain).toContain("current");
@@ -76,7 +78,7 @@ describe("renderRateLines", () => {
           resetLabel: "may 1",
         },
       },
-      { use24h: true, timeZone: "Europe/Madrid", barWidth: 10 },
+      { use24h: true, timeZone: "Europe/Madrid", barWidth: 10, glyphs: emoji },
     );
     expect(stripAnsi(out)).toContain("extra");
     expect(stripAnsi(out)).toContain("$2.50");
@@ -88,9 +90,33 @@ describe("renderRateLines", () => {
     expect(
       renderRateLines(
         { fiveHour: undefined, sevenDay: undefined, extra: undefined },
-        { use24h: true, timeZone: "UTC", barWidth: 10 },
+        { use24h: true, timeZone: "UTC", barWidth: 10, glyphs: emoji },
       ),
     ).toBe("");
+  });
+
+  test("renders projection minutes after percentage", () => {
+    const out = renderRateLines(
+      {
+        fiveHour: { pct: 40, resetEpoch: undefined, projectionMinutes: 38 },
+        sevenDay: undefined,
+        extra: undefined,
+      },
+      { use24h: true, timeZone: "UTC", barWidth: 10, glyphs: emoji },
+    );
+    expect(stripAnsi(out)).toContain("~38m");
+  });
+
+  test("renders projection in hours when over 60m", () => {
+    const out = renderRateLines(
+      {
+        fiveHour: { pct: 10, resetEpoch: undefined, projectionMinutes: 125 },
+        sevenDay: undefined,
+        extra: undefined,
+      },
+      { use24h: true, timeZone: "UTC", barWidth: 10, glyphs: emoji },
+    );
+    expect(stripAnsi(out)).toContain("~2h5m");
   });
 });
 

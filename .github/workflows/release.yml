@@ -51,3 +51,50 @@ jobs:
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  binaries:
+    name: Build binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: bun-darwin-arm64, asset: claudeline-darwin-arm64 }
+          - { os: macos-13, target: bun-darwin-x64, asset: claudeline-darwin-x64 }
+          - { os: ubuntu-latest, target: bun-linux-x64, asset: claudeline-linux-x64 }
+          - { os: ubuntu-24.04-arm, target: bun-linux-arm64, asset: claudeline-linux-arm64 }
+          - { os: windows-latest, target: bun-windows-x64, asset: claudeline-windows-x64.exe }
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build binary
+        run: bun build src/cli.ts --compile --target=${{ matrix.target }} --outfile=dist/${{ matrix.asset }}
+
+      - name: Compute SHA256 (Unix)
+        if: runner.os != 'Windows'
+        run: shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+        working-directory: dist
+
+      - name: Compute SHA256 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: dist
+        run: |
+          $h = Get-FileHash -Algorithm SHA256 ${{ matrix.asset }}
+          "$($h.Hash.ToLower())  ${{ matrix.asset }}" | Out-File -Encoding utf8 ${{ matrix.asset }}.sha256
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: gh release upload "${GITHUB_REF_NAME}" "dist/${{ matrix.asset }}" "dist/${{ matrix.asset }}.sha256" --clobber

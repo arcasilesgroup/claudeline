@@ -16,16 +16,22 @@ export interface FetchUsageOptions {
   timeoutMs?: number;
 }
 
+export interface FetchUsageResult {
+  data: UsageApiResponse;
+  latencyMs: number;
+}
+
 export async function fetchUsage(
   token: string | undefined,
   options: FetchUsageOptions = {},
-): Promise<UsageApiResponse | undefined> {
+): Promise<FetchUsageResult | undefined> {
   if (!token || token.trim() === "") return undefined;
 
   const fetchFn = options.fetchFn ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const startedAt = Date.now();
 
   try {
     const response = await fetchFn(USAGE_URL, {
@@ -41,7 +47,8 @@ export async function fetchUsage(
     });
     if (!response.ok) return undefined;
     const json = await response.json();
-    return z.parse(usageApiSchema, json);
+    const latencyMs = Date.now() - startedAt;
+    return { data: z.parse(usageApiSchema, json), latencyMs };
   } catch {
     return undefined;
   } finally {

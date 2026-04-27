@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-27
+
+The first feature release on top of the 0.1.x security/quality groundwork.
+
+### Added
+
+- **Cost per session.** A `💸 $X.XX` segment after the directory shows
+  the running session cost, derived from `current_usage` token counts
+  multiplied by the model's published Anthropic price. Pricing covers
+  Opus 4.x, Sonnet 4.x, Haiku 4.x and 3.5, plus the common short
+  aliases (`opus`, `sonnet`, `haiku`). Unknown models render no segment
+  rather than guessing.
+- **Rate-limit projection.** When the 5-hour usage bar is shown,
+  claudeline persists the last sample to `<tmpdir>/claudeline-<uid>/state.json`
+  and on the next render computes the burn rate. If the bar is rising,
+  a `~Nm` (or `~Nh) is rendered to its right — your projected time-to-100%
+  at the current pace. The state file is hardened with the same
+  `O_NOFOLLOW` + atomic `wx`-tempfile pattern as the cache.
+- **Latency badge.** When the OAuth API takes longer than 1 s, a
+  `⚡ Xms` badge is appended to line 1 (yellow at 1–3 s, red beyond).
+  The latency is timed in `fetchUsage` and persisted in the cache so it
+  survives the 60 s window.
+- **Worktree-aware git status.** Detects linked git worktrees via
+  `git rev-parse --git-dir` and prefixes the branch name with `⎇:` so
+  it's distinguishable from the main checkout. Adds one cheap `git`
+  call only when already inside a repo.
+- **Glyph mode** via `CLAUDELINE_GLYPHS` environment variable: `emoji`
+  (default), `nerd` (NerdFont icons + emoji where they look great),
+  `plain` (pure ASCII for SSH/screen/no-emoji terminals). Three full
+  glyph tables in `src/glyphs.ts`.
+- **Self-contained binaries.** Every release now ships Bun-compiled
+  binaries (`claudeline-darwin-arm64`, `claudeline-darwin-x64`,
+  `claudeline-linux-x64`, `claudeline-linux-arm64`,
+  `claudeline-windows-x64.exe`) plus an `.sha256` sidecar each. Users
+  without Node can `curl | install` directly.
+- **Homebrew tap** at
+  [`arcasilesgroup/homebrew-claudeline`](https://github.com/arcasilesgroup/homebrew-claudeline).
+  `brew tap arcasilesgroup/claudeline && brew install claudeline`
+  consumes the binary release assets.
+- **Demo GIF** in the README.
+
+### Changed
+
+- `RenderDeps` now requires `glyphs`, `loadState`, `saveState`. The
+  cache wraps the API response in `{ data, latencyMs, fetchedAt }`
+  rather than storing it directly, which is also what the latency
+  badge reads. Loaders defensively detect the old shape and discard
+  stale entries (the 60 s TTL means at worst one extra fetch).
+- `fetchUsage` now returns `{ data, latencyMs } | undefined` instead
+  of `UsageApiResponse | undefined`.
+- Segment functions (`contextSegment`, `directorySegment`,
+  `sessionSegment`, `effortSegment`, `thinkingSegment`) take a
+  `GlyphSet` so the visual tokens are pluggable per render.
+
+### Security
+
+- The new `state.json` file follows the same hardening as the cache:
+  per-uid directory (`<tmpdir>/claudeline-<uid>/`), `0o700` directory,
+  `0o600` file, `O_NOFOLLOW` reads, atomic `wx`-tempfile + rename, and
+  pre-existing-symlink rejection.
+
 ## [0.1.5] - 2026-04-27
 
 ### Security
@@ -173,7 +234,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.2...v0.1.3

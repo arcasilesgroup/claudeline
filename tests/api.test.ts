@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { fetchUsage } from "../src/api.js";
 
 describe("fetchUsage", () => {
-  test("returns parsed usage on 200 OK", async () => {
+  test("returns parsed usage and latency on 200 OK", async () => {
     const fakeFetch = async () =>
       new Response(
         JSON.stringify({
@@ -11,9 +11,11 @@ describe("fetchUsage", () => {
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
-    const data = await fetchUsage("tok", { fetchFn: fakeFetch });
-    expect(data).toBeDefined();
-    expect(data?.five_hour?.utilization).toBe(12.4);
+    const result = await fetchUsage("tok", { fetchFn: fakeFetch });
+    expect(result).toBeDefined();
+    expect(result?.data.five_hour?.utilization).toBe(12.4);
+    expect(typeof result?.latencyMs).toBe("number");
+    expect(result!.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
   test("returns undefined on non-2xx", async () => {
@@ -47,5 +49,14 @@ describe("fetchUsage", () => {
     });
     expect(result).toBeUndefined();
     expect(Date.now() - start).toBeLessThan(500);
+  });
+
+  test("measures latency for slow responses", async () => {
+    const fakeFetch = async () => {
+      await new Promise((r) => setTimeout(r, 30));
+      return new Response(JSON.stringify({}), { status: 200 });
+    };
+    const result = await fetchUsage("tok", { fetchFn: fakeFetch });
+    expect(result?.latencyMs).toBeGreaterThanOrEqual(20);
   });
 });
