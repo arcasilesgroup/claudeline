@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-04-27
+
+### Changed
+
+- README demo extended from 8 s to 11 s with a longer hold so the
+  finished statusline stays on screen long enough to read. The bars
+  now visibly walk through every color threshold (green → orange →
+  yellow → red on `current` 0→95%, green → orange → yellow on
+  `weekly` 0→75%) so the colour-coding is part of the demo. The
+  whole composition is now wrapped in a rounded GitHub-dark card,
+  matching the existing static screenshot aesthetic.
+
+### Security
+
+- Bumped the Remotion subproject's pinned `webpack` from 5.96.1 to
+  5.106.2 via `package.json overrides` to clear two GitHub
+  Code-Scanning alerts (CVE-2025-68458 / GHSA-8fgc-7cc6-rx7x and
+  CVE-2025-68157 / GHSA-38r7-794h-5758). Both bugs require
+  `experiments.buildHttp` which Remotion does not enable, so the
+  shipped binary was never affected — the subproject is dev-only and
+  not in the npm tarball — but cleaning the alert keeps the dashboard
+  honest.
+
 ## [0.2.1] - 2026-04-27
 
 ### Fixed
@@ -248,7 +271,8 @@ The first feature release on top of the 0.1.x security/quality groundwork.
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.4...v0.1.5
