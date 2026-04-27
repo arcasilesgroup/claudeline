@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   type DoctorEnv,
   type DoctorReport,
@@ -15,6 +16,15 @@ import {
   runDoctor,
 } from "../src/doctor.js";
 
+// Paths in the happy env are composed with `join` so the tests pass
+// on Windows (where `join("/tmp", "claudeline-501")` is `\tmp\claudeline-501`).
+// The production `cacheDirFor` uses `join`, so the test must too —
+// hard-coding "/tmp/claudeline-501" was the cause of the 0.3.x
+// Windows CI regression.
+const HAPPY_CACHE_DIR = join("/tmp", "claudeline-501");
+const HAPPY_CACHE_FILE = join(HAPPY_CACHE_DIR, "usage-cache.json");
+const HAPPY_STATE_FILE = join(HAPPY_CACHE_DIR, "state.json");
+
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 // Build a "happy-path" env where every check passes. Individual tests
@@ -29,9 +39,9 @@ function happyEnv(overrides: Partial<DoctorEnv> = {}): DoctorEnv {
     arch: "arm64",
     existsSync: (p: string) =>
       // Cache dir + cache + state files all exist in the happy env.
-      p === "/tmp/claudeline-501" ||
-      p === "/tmp/claudeline-501/usage-cache.json" ||
-      p === "/tmp/claudeline-501/state.json",
+      p === HAPPY_CACHE_DIR ||
+      p === HAPPY_CACHE_FILE ||
+      p === HAPPY_STATE_FILE,
     statMode: () => 0o40700,
     readSettings: () => ({
       effortLevel: "high",
@@ -303,12 +313,12 @@ describe("checkEngine", () => {
 
 describe("cacheDirFor", () => {
   test("uses uid-suffixed path under tmpdir", () => {
-    expect(cacheDirFor(happyEnv())).toBe("/tmp/claudeline-501");
+    expect(cacheDirFor(happyEnv())).toBe(HAPPY_CACHE_DIR);
   });
 
   test("falls back to 'shared' when uid unset", () => {
     const env = happyEnv({ userInfo: {} });
-    expect(cacheDirFor(env)).toBe("/tmp/claudeline-shared");
+    expect(cacheDirFor(env)).toBe(join("/tmp", "claudeline-shared"));
   });
 });
 
