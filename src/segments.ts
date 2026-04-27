@@ -169,12 +169,37 @@ export interface ModelPricing {
 export const LATENCY_HIDE_BELOW_MS = 1000;
 export const LATENCY_RED_AT_MS = 3000;
 
+export function fastModeSegment(
+  enabled: boolean | null | undefined,
+  glyphs: GlyphSet,
+): string {
+  if (!enabled) return "";
+  return paint(glyphs.fastMode, palette.cyan);
+}
+
+export function largeContextSegment(
+  exceeds200k: boolean | null | undefined,
+  glyphs: GlyphSet,
+): string {
+  if (!exceeds200k) return "";
+  return paint(glyphs.largeContext, palette.yellow);
+}
+
+export interface LatencySummary {
+  p50: number;
+  p99: number;
+}
+
 export function latencySegment(
   latencyMs: number | undefined,
   glyphs: GlyphSet,
   thresholdMs = LATENCY_HIDE_BELOW_MS,
+  summary?: LatencySummary,
 ): string {
   if (typeof latencyMs !== "number" || latencyMs < thresholdMs) return "";
   const color = latencyMs >= LATENCY_RED_AT_MS ? palette.red : palette.yellow;
-  return `${color}${glyphs.latency} ${latencyMs}ms${RESET}`;
+  const tail = summary
+    ? ` ${style.dim}(p50:${summary.p50}/p99:${summary.p99})${RESET}${color}`
+    : "";
+  return `${color}${glyphs.latency} ${latencyMs}ms${tail}${RESET}`;
 }

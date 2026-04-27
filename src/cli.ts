@@ -1,10 +1,12 @@
-import { realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as z from "zod/mini";
 import { fetchUsage } from "./api.js";
 import { loadJsonCache, saveJsonCache } from "./cache.js";
+import { adoptCachedUsage } from "./cli-shared.js";
 import { defaultCredentialSources, loadOAuthToken } from "./credentials.js";
+import { type DoctorEnv, printReport, runDoctor } from "./doctor.js";
 import { getGitInfo } from "./git.js";
 import { glyphsFor, parseGlyphMode } from "./glyphs.js";
 import { install, uninstall } from "./installer.js";
@@ -19,12 +21,15 @@ import { type RateState, loadState, saveState } from "./state.js";
 import { detect24Hour } from "./time.js";
 import { VERSION } from "./version.js";
 
+export { adoptCachedUsage };
+
 const HELP = `claudeline ${VERSION} — cross-platform statusline for Claude Code
 
 Usage:
   claudeline render                Read JSON from stdin and emit the statusline
   claudeline install               Wire claudeline as the statusLine in ~/.claude/settings.json
   claudeline uninstall             Remove claudeline from ~/.claude/settings.json
+  claudeline doctor                Run diagnostics and print a pass/fail report
   claudeline --help                Show this help
   claudeline --version             Show version
 
@@ -32,7 +37,8 @@ Configuration:
   - .effort.level / .thinking.enabled / model.id from stdin (Claude Code runtime)
   - effortLevel / alwaysThinkingEnabled from ~/.claude/settings.json (fallback)
   - Rate limits: stdin first, otherwise OAuth API (cached 60s)
-  - Cost: derived from token counts × model price (Anthropic public pricing)
+  - Cost: server-side cost.total_cost_usd from Claude Code (preferred);
+    falls back to token counts × Anthropic public pricing
   - CLAUDELINE_GLYPHS=emoji|nerd|plain (default emoji); plain works on
     terminals without Unicode/emoji rendering, nerd assumes a NerdFont
 
@@ -68,12 +74,69 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  if (cmd === "doctor") {
+    return runDoctorCmd();
+  }
+
   if (cmd === "render" || cmd === undefined) {
     return await runRender();
   }
 
   process.stderr.write(`unknown command: ${cmd}\n${HELP}`);
   return 2;
+}
+
+// Run all diagnostic checks and print a pass/fail report. Always
+// returns 0 — `doctor` is informational; the tool itself is functional
+// even when a check warns. We surface failures via stdout, not exit
+// code, so a CI-style `claudeline doctor || exit 1` would need to grep
+// the output (intentional: doctor warnings are not test failures).
+function runDoctorCmd(): number {
+  const env = buildRealDoctorEnv();
+  const report = runDoctor(env);
+  process.stdout.write(`${printReport(report)}\n`);
+  return 0;
+}
+
+function buildRealDoctorEnv(): DoctorEnv {
+  const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+  const cacheDir = join(
+    tmpdir(),
+    `claudeline-${uid ?? "shared"}`,
+  );
+  const cachePath = join(cacheDir, "usage-cache.json");
+  const statePath = join(cacheDir, "state.json");
+  const settingsPath = defaultSettingsPath();
+
+  const env: DoctorEnv = {
+    envVars: process.env,
+    tmpdir: tmpdir(),
+    userInfo: uid !== undefined ? { uid } : {},
+    platform: platform(),
+    existsSync: (p: string) => existsSync(p),
+    statMode: (p: string) => {
+      try {
+        // `lstatSync` so a symlinked cache dir doesn't quietly hide
+        // wrong perms; we want the perms of the entry the user owns.
+        return lstatSync(p).mode;
+      } catch {
+        return undefined;
+      }
+    },
+    readSettings: () => readSettingsFile(settingsPath),
+    cacheExists: () => existsSync(cachePath),
+    // Pass `Infinity` as the TTL so the doctor sees the raw on-disk
+    // entry regardless of freshness — we want to flag stale shapes,
+    // not stale freshness.
+    cacheLoadRaw: () => loadJsonCache<unknown>(cachePath, Infinity),
+    stateExists: () => existsSync(statePath),
+    stateLoad: () => loadState(statePath),
+    nodeVersion: process.versions.node,
+  };
+
+  const bunVersion = process.versions["bun"];
+  if (bunVersion) env.bunVersion = bunVersion;
+  return env;
 }
 
 async function runRender(): Promise<number> {
@@ -129,26 +192,6 @@ async function runRender(): Promise<number> {
 
   process.stdout.write(`${out}\n`);
   return 0;
-}
-
-// Pre-0.2 cache stored a `UsageApiResponse` directly at the top level.
-// 0.2+ wraps it as `{ data, latencyMs }`. Discard everything that
-// doesn't match the new shape (including arrays-as-objects, null, and
-// stale entries); the 60 s TTL means the next render just re-fetches.
-// Exported so tests can pin migration behaviour without spinning up
-// a real fs cache.
-export function adoptCachedUsage(raw: unknown): CachedUsage | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const candidate = raw as Partial<CachedUsage>;
-  if (!candidate.data || typeof candidate.data !== "object") return undefined;
-  if (Array.isArray(candidate.data)) return undefined;
-  // latencyMs may be missing on entries from a future bump that drops it;
-  // guard at read-time so latencySegment never sees NaN.
-  const latencyMs =
-    typeof candidate.latencyMs === "number" && Number.isFinite(candidate.latencyMs)
-      ? candidate.latencyMs
-      : 0;
-  return { data: candidate.data, latencyMs };
 }
 
 function parseForce24(raw: string | undefined): boolean | undefined {

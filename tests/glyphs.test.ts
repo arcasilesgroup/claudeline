@@ -46,6 +46,17 @@ describe("glyphsFor", () => {
     expect(g.barEmpty).not.toBe("○");
   });
 
+  test("nerd set has no silently-empty slots", () => {
+    // Regression guard: NerdFont private-use codepoints (e.g. ) are
+    // invisible in editors that don't render them, and a refactor that
+    // round-trips through such an editor can collapse them to "". An empty
+    // slot in NERD makes the progress bar render as a blank string and
+    // every separator/icon vanish — silently broken for nerd-mode users.
+    for (const [name, value] of Object.entries(glyphsFor("nerd"))) {
+      expect(value, `nerd glyph ${name} must not be empty`).not.toBe("");
+    }
+  });
+
   test("all three sets cover the same slots", () => {
     const slots = Object.keys(glyphsFor("emoji"));
     expect(Object.keys(glyphsFor("nerd")).sort()).toEqual(slots.sort());

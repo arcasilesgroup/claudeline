@@ -114,9 +114,9 @@ describe("cli", () => {
     expect(r.stdout.trim()).toBe("Claude");
   });
 
-  test("--version reports a 0.2.x version", () => {
+  test("--version reports a semver string", () => {
     const r = run(["--version"]);
-    expect(r.stdout.trim()).toMatch(/^0\.2\.\d+$/);
+    expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
   test("--version works when invoked via a symlink (regression: 0.2.0 was silent)", () => {
@@ -173,6 +173,37 @@ describe("cli", () => {
       }),
     );
     expect(stripAnsi(r.stdout)).not.toContain("ms");
+  });
+
+  test("doctor exits 0, contains a Summary line and a recognizable check label", () => {
+    const r = run(["doctor"]);
+    expect(r.status).toBe(0);
+    const plain = stripAnsi(r.stdout);
+    expect(plain).toContain("Summary:");
+    // statusLine is the first check; this label should appear regardless
+    // of whether the dev environment passes or warns.
+    expect(plain.toLowerCase()).toContain("settings");
+    // Doctor banner identifies itself.
+    expect(plain).toContain("claudeline doctor");
+  });
+
+  test("doctor warns about CLAUDE_CODE_EFFORT_LEVEL when set in env", () => {
+    const r = spawnSync("node", [dist, "doctor"], {
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDE_CODE_EFFORT_LEVEL: "max" },
+    });
+    expect(r.status).toBe(0);
+    const plain = stripAnsi(r.stdout);
+    expect(plain).toContain("CLAUDE_CODE_EFFORT_LEVEL=max");
+    expect(plain).toContain("/model");
+  });
+
+  test("doctor still exits 0 when warnings fire (informational)", () => {
+    const r = spawnSync("node", [dist, "doctor"], {
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDE_CODE_EFFORT_LEVEL: "low" },
+    });
+    expect(r.status).toBe(0);
   });
 });
 

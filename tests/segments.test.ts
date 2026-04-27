@@ -6,6 +6,8 @@ import {
   costSegment,
   directorySegment,
   effortSegment,
+  fastModeSegment,
+  largeContextSegment,
   latencySegment,
   modelSegment,
   sessionSegment,
@@ -411,13 +413,64 @@ describe("latencySegment", () => {
     expect(stripAnsi(latencySegment(2000, plain))).toBe("lat: 2000ms");
   });
 
-  test("renders at exactly 1000ms (boundary inclusive)", () => {
+  test("renders at exactly 1000ms (boundary inclusive)", () => {  // anchor
     expect(stripAnsi(latencySegment(1000, emoji))).toBe("🐢 1000ms");
   });
 
   test("at exactly 3000ms switches to red", () => {
     const out = latencySegment(3000, emoji);
     expect(out).toContain(palette.red);
+  });
+
+  test("renders summary parenthetical when supplied", () => {
+    const out = latencySegment(230, emoji, 0, { p50: 180, p99: 550 });
+    expect(stripAnsi(out)).toBe("🐢 230ms (p50:180/p99:550)");
+  });
+
+  test("ignores summary when latency is below threshold", () => {
+    expect(latencySegment(500, emoji, 1000, { p50: 100, p99: 999 })).toBe("");
+  });
+
+  test("plain mode renders summary parenthetical", () => {
+    expect(
+      stripAnsi(latencySegment(2000, plain, undefined, { p50: 700, p99: 2500 })),
+    ).toBe("lat: 2000ms (p50:700/p99:2500)");
+  });
+
+  test("without summary keeps the original rendering", () => {
+    expect(stripAnsi(latencySegment(1500, emoji))).toBe("🐢 1500ms");
+  });
+});
+
+describe("fastModeSegment", () => {
+  test("empty when disabled", () => {
+    expect(fastModeSegment(false, emoji)).toBe("");
+    expect(fastModeSegment(undefined, emoji)).toBe("");
+    expect(fastModeSegment(null, emoji)).toBe("");
+  });
+
+  test("renders 🐇 when fast_mode true", () => {
+    expect(stripAnsi(fastModeSegment(true, emoji))).toBe("🐇");
+  });
+
+  test("plain mode renders 'fast'", () => {
+    expect(stripAnsi(fastModeSegment(true, plain))).toBe("fast");
+  });
+});
+
+describe("largeContextSegment", () => {
+  test("empty when not exceeding 200K", () => {
+    expect(largeContextSegment(false, emoji)).toBe("");
+    expect(largeContextSegment(undefined, emoji)).toBe("");
+    expect(largeContextSegment(null, emoji)).toBe("");
+  });
+
+  test("renders 📚 when exceeds_200k_tokens true", () => {
+    expect(stripAnsi(largeContextSegment(true, emoji))).toBe("📚");
+  });
+
+  test("plain mode renders '1M+'", () => {
+    expect(stripAnsi(largeContextSegment(true, plain))).toBe("1M+");
   });
 });
 

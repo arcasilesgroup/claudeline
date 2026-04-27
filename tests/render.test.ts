@@ -294,6 +294,101 @@ describe("renderStatusline", () => {
     expect(stripAnsi(out)).toContain("🐢 1500ms");
   });
 
+  test("persists latency samples and renders p50/p99 once history is sufficient", async () => {
+    let savedState: RateState = {};
+    let cached: import("../src/render.js").CachedUsage | undefined;
+    let nowMs = 1_000_000_000_000;
+    // Use varying latencies so p50 ≠ p99 — a constant value would let an
+    // implementation that returned `last sample` instead of computed
+    // percentiles still pass.
+    const samplesMs = [1200, 1400, 1600, 1800, 2000, 5000];
+    let i = 0;
+    const fetchUsage = async () =>
+      ({
+        data: {
+          five_hour: { utilization: 5, resets_at: "2026-04-26T22:30:00Z" },
+        },
+        latencyMs: samplesMs[i++]!,
+      }) as const;
+
+    const buildDeps = (): RenderDeps => ({
+      ...mockDeps(),
+      now: () => nowMs,
+      loadToken: () => "tok",
+      fetchUsage,
+      cacheLoad: () => cached,
+      cacheSave: (c) => {
+        cached = c;
+      },
+      loadState: () => savedState,
+      saveState: (s) => {
+        savedState = s;
+      },
+    });
+
+    // First fetch — one sample, no percentile parenthetical (need ≥5).
+    const out1 = await renderStatusline({ cwd: "/p" }, buildDeps());
+    expect(stripAnsi(out1)).toContain("🐢 1200ms");
+    expect(stripAnsi(out1)).not.toContain("p50:");
+    expect(savedState.latencySamples).toHaveLength(1);
+
+    // Three more fetches → 4 samples; still no parenthetical.
+    for (let n = 0; n < 3; n++) {
+      cached = undefined;
+      nowMs += 60_000;
+      await renderStatusline({ cwd: "/p" }, buildDeps());
+    }
+    expect(savedState.latencySamples).toHaveLength(4);
+
+    // Fifth fetch — exactly 5 samples (the boundary). Parenthetical
+    // should appear from this render onward.
+    cached = undefined;
+    nowMs += 60_000;
+    const outFifth = await renderStatusline({ cwd: "/p" }, buildDeps());
+    const plainFifth = stripAnsi(outFifth);
+    expect(savedState.latencySamples).toHaveLength(5);
+    expect(plainFifth).toContain("🐢 2000ms");
+    // Sorted [1200,1400,1600,1800,2000] — p50: ceil(0.5*5)=3 → idx 2 → 1600.
+    //                                       p99: ceil(0.99*5)=5 → idx 4 → 2000.
+    expect(plainFifth).toContain("(p50:1600/p99:2000)");
+
+    // Sixth fetch — outlier 5000ms drags p99 up; p50 only nudges.
+    cached = undefined;
+    nowMs += 60_000;
+    const outSixth = await renderStatusline({ cwd: "/p" }, buildDeps());
+    const plainSixth = stripAnsi(outSixth);
+    expect(plainSixth).toContain("🐢 5000ms");
+    // Sorted [1200,1400,1600,1800,2000,5000] — p50: ceil(0.5*6)=3 → idx 2 → 1600.
+    //                                          p99: ceil(0.99*6)=6 → idx 5 → 5000.
+    expect(plainSixth).toContain("(p50:1600/p99:5000)");
+  });
+
+  test("latency summary not shown when stdin already has rate limits", async () => {
+    let savedState: RateState = {
+      latencySamples: Array.from({ length: 10 }, (_, i) => ({
+        ms: 1500,
+        epoch: 1000 + i,
+      })),
+    };
+    const out = await renderStatusline(
+      {
+        cwd: "/p",
+        rate_limits: {
+          five_hour: { used_percentage: 5, resets_at: "2026-04-26T22:30:00Z" },
+        },
+      },
+      mockDeps({
+        loadState: () => savedState,
+        saveState: (s) => {
+          savedState = s;
+        },
+      }),
+    );
+    // No new fetch happened, so no latency badge at all.
+    expect(stripAnsi(out)).not.toContain("🐢");
+    expect(stripAnsi(out)).not.toContain("p50:");
+  });
+
   test("does not render latency badge below threshold", async () => {
     const out = await renderStatusline(
       { cwd: "/p/repo" },
@@ -366,6 +461,20 @@ describe("renderStatusline", () => {
     );
     expect(loadCount).toBe(0);
     expect(saveCount).toBe(0);
+  });
+
+  test("renders fast mode and 1M context badges when stdin flags them", async () => {
+    const out = await renderStatusline(
+      {
+        cwd: "/p",
+        fast_mode: true,
+        exceeds_200k_tokens: true,
+      } as never,
+      mockDeps(),
+    );
+    const plain = stripAnsi(out);
+    expect(plain).toContain("🐇");
+    expect(plain).toContain("📚");
   });
 
   test("plain glyph mode renders ASCII bar cells", async () => {

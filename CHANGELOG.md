@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-27
+
+The first feature release on top of the 0.2.x bug-fix run. Six new
+capabilities, all reusing existing hardening primitives.
+
+### Added
+
+- **`claudeline doctor` — diagnostic subcommand.** Runs eight read-only
+  checks against your environment and prints a pass/warn/fail report
+  with actionable fixes. Detects `CLAUDE_CODE_EFFORT_LEVEL` env var
+  overrides (the bug we hit during 0.2.x debugging), missing or
+  malformed `~/.claude/settings.json`, cache directory permissions,
+  malformed/symlinked cache file, broken state file, unknown effort
+  levels, and Node/Bun engine info. Always exits 0 — informational
+  only, never modifies anything.
+- **API latency p50/p99 sliding window.** When the `🐢 Xms` badge
+  fires, claudeline now also shows `(p50:Y/p99:Z)` derived from up to
+  60 minutes of samples. Persisted to the existing `state.json` with
+  the same hardened primitives. Renders only after ≥5 samples (below
+  that, percentiles are noise).
+- **Fast mode badge** — 🐇 (cyan) appears when `stdin.fast_mode` is
+  true. Useful as a "did I forget I'm on `--fast`?" reminder.
+- **1M context warning** — 📚 (yellow) appears when
+  `stdin.exceeds_200k_tokens` is true. Heads-up that you're past the
+  cliff where pricing tier may shift and the model gets slower.
+- **Three real Claude Code stdin fixtures** in `tests/fixtures/`,
+  validated against the schema and renderer. Catches regressions when
+  Anthropic ships a new field shape.
+- **README "Why this vs the bash version"** section comparing
+  claudeline to [@kamranahmedse/claude-statusline] across cost source,
+  rate-limit projection, latency badge, glyph modes, tests, etc. For
+  adoption.
+
+[@kamranahmedse/claude-statusline]: https://github.com/kamranahmedse/claude-statusline
+
+### Changed
+
+- **CI cross-compiles `darwin-x64` from `macos-latest`** (arm64 host)
+  instead of `macos-13`. The macos-13 runners had been queueing 20+
+  minutes per release through the 0.2.x line, forcing manual
+  cross-compile every time. Bun supports cross-target compilation, so
+  this just works and ends the recurring operational paper-cut.
+
+### Schema
+
+- Stdin schema now reads `cost.total_cost_usd`, `fast_mode`, and
+  `exceeds_200k_tokens`. All optional and tolerant of `null`.
+
+### Tests
+
+- 205 → 291 tests (+86). New suites: `fixtures.test.ts`,
+  `doctor.test.ts`, expanded `state.test.ts` and `segments.test.ts`
+  for latency window and the two new badges.
+
 ## [0.2.5] - 2026-04-27
 
 ### Changed
@@ -317,7 +371,8 @@ The first feature release on top of the 0.1.x security/quality groundwork.
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.2...v0.2.3

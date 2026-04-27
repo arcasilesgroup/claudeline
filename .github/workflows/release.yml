@@ -61,8 +61,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Cross-compile darwin-x64 from the arm64 host so we don't
+          # depend on macos-13 runners (chronically backed up — every
+          # 0.2.x release queued for >20 min there). Bun's --compile
+          # honours --target regardless of the host arch.
           - { os: macos-latest, target: bun-darwin-arm64, asset: claudeline-darwin-arm64 }
-          - { os: macos-13, target: bun-darwin-x64, asset: claudeline-darwin-x64 }
+          - { os: macos-latest, target: bun-darwin-x64, asset: claudeline-darwin-x64 }
           - { os: ubuntu-latest, target: bun-linux-x64, asset: claudeline-linux-x64 }
           - { os: ubuntu-24.04-arm, target: bun-linux-arm64, asset: claudeline-linux-arm64 }
           - { os: windows-latest, target: bun-windows-x64, asset: claudeline-windows-x64.exe }

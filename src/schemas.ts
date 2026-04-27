@@ -71,6 +71,13 @@ export const statuslineInputSchema = z.looseObject({
       total_cost_usd: nullish(z.number().check(z.nonnegative())),
     }),
   ),
+  // True when the session is using `--fast`. We mirror it as a
+  // visible badge so a user who forgot they enabled it sees it.
+  fast_mode: nullish(z.boolean()),
+  // True when total session tokens already exceed 200K — the 1M
+  // context window cliff where pricing tier may shift and the model
+  // starts getting slower. Useful as a yellow-flag indicator.
+  exceeds_200k_tokens: nullish(z.boolean()),
 });
 
 export type StatuslineInput = z.infer<typeof statuslineInputSchema>;

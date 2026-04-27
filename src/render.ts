@@ -5,10 +5,13 @@ import type { GlyphSet } from "./glyphs.js";
 import { pricingFor } from "./pricing.js";
 import type { Settings, StatuslineInput, UsageApiResponse } from "./schemas.js";
 import {
+  type LatencySummary,
   contextSegment,
   costSegment,
   directorySegment,
   effortSegment,
+  fastModeSegment,
+  largeContextSegment,
   latencySegment,
   modelSegment,
   sessionSegment,
@@ -17,6 +20,8 @@ import {
 import {
   type RateSample,
   type RateState,
+  appendLatencySample,
+  latencyPercentiles,
   projectMinutes,
 } from "./state.js";
 import { formatEpoch, parseIsoToEpoch } from "./time.js";
@@ -94,14 +99,29 @@ export async function renderStatusline(
 
   const effortStr = effortSegment(effortLevel, glyphs);
   const thinkingStr = thinkingSegment(thinkingEnabled, glyphs);
-  if (effortStr || thinkingStr) {
-    line1Parts.push(joinNonEmpty(" ", effortStr, thinkingStr));
-  }
+  const fastStr = fastModeSegment(input.fast_mode, glyphs);
+  const largeStr = largeContextSegment(input.exceeds_200k_tokens, glyphs);
+  const trailingBadges = joinNonEmpty(
+    " ",
+    effortStr,
+    thinkingStr,
+    fastStr,
+    largeStr,
+  );
+  if (trailingBadges) line1Parts.push(trailingBadges);
 
   const line1 = line1Parts.join(separator);
 
-  const { rateData, latencyMs } = await gatherRateLimits(input, deps);
-  const latencyStr = latencySegment(latencyMs, glyphs);
+  const { rateData, latencyMs, latencySummary } = await gatherRateLimits(
+    input,
+    deps,
+  );
+  const latencyStr = latencySegment(
+    latencyMs,
+    glyphs,
+    undefined,
+    latencySummary,
+  );
   const lines: string[] = [latencyStr ? `${line1}${separator}${latencyStr}` : line1];
 
   const rateLines = renderRateLines(rateData, {
@@ -169,7 +189,11 @@ function buildCostInput(input: StatuslineInput) {
 async function gatherRateLimits(
   input: StatuslineInput,
   deps: RenderDeps,
-): Promise<{ rateData: RateLimitsData; latencyMs: number | undefined }> {
+): Promise<{
+  rateData: RateLimitsData;
+  latencyMs: number | undefined;
+  latencySummary: LatencySummary | undefined;
+}> {
   const fromStdin = extractRateLimitsFromInput(input);
   if (fromStdin) {
     const cached = deps.cacheLoad();
@@ -179,7 +203,7 @@ async function gatherRateLimits(
       sevenDay: fromStdin.sevenDay ?? undefined,
       extra,
     };
-    return { rateData: data, latencyMs: undefined };
+    return { rateData: data, latencyMs: undefined, latencySummary: undefined };
   }
 
   // Latency surfaces only on the render that *fetches* — once it's in
@@ -196,6 +220,7 @@ async function gatherRateLimits(
         cached = { data: fetched.data, latencyMs: fetched.latencyMs };
         deps.cacheSave(cached);
         latencyMs = fetched.latencyMs;
+        recordLatencySample(latencyMs, deps);
       }
     }
   }
@@ -203,16 +228,35 @@ async function gatherRateLimits(
     return {
       rateData: { fiveHour: undefined, sevenDay: undefined, extra: undefined },
       latencyMs: undefined,
+      latencySummary: undefined,
     };
   }
   const adapted = adaptApiUsage(cached.data, deps);
+  // Compute the percentile summary AFTER recording the fresh sample so
+  // the badge reflects the just-observed call.
+  const latencySummary = latencyMs === undefined
+    ? undefined
+    : latencyPercentiles(deps.loadState().latencySamples);
   return {
     rateData: {
       ...adapted,
       fiveHour: projectAndPersistFiveHour(adapted.fiveHour, deps),
     },
     latencyMs,
+    latencySummary,
   };
+}
+
+// Persist the just-observed latency into state so future renders can
+// compute a percentile summary. Pure compose: `appendLatencySample` is
+// pure, the IO is the existing `loadState` / `saveState` round-trip.
+function recordLatencySample(latencyMs: number, deps: RenderDeps): void {
+  const state = deps.loadState();
+  const next = appendLatencySample(state, {
+    ms: latencyMs,
+    epoch: Math.floor(deps.now() / 1000),
+  });
+  deps.saveState(next);
 }
 
 // Loads the previous 5-hour sample, computes a projection if usable,

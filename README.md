@@ -20,18 +20,40 @@ TypeScript, single binary, zero config.
 ## Features
 
 - **Model + context %** — colored by usage threshold (green → orange → yellow → red)
-- **Cost per session** — `💸 $X.XX` derived from token counts × Anthropic public pricing (Opus, Sonnet, Haiku)
+- **Cost per session** — `💸 $X.XX` from Claude Code's authoritative server-side total, with a token×pricing fallback for older runtimes
 - **Working directory + git** — branch, dirty flag, worktree marker (`⎇:branch`), optional `⚡` for `--dangerously-skip-permissions`
 - **Session duration** — elapsed since session start
 - **Effort indicator** — distinct glyphs for `max`, `xhigh`, `high`, `medium`, `low`
 - **Thinking indicator** — 🧠 when extended thinking is enabled
-- **Rate limits** — 5-hour, weekly, and optional extra credits, sourced from
-  Claude Code stdin first, OAuth API as fallback
+- **Fast mode badge** — 🐇 when running with `--fast`
+- **1M context warning** — 📚 when the session exceeds 200K tokens
+- **Rate limits** — 5-hour, weekly, and optional extra credits, sourced from Claude Code stdin first, OAuth API as fallback
 - **Rate-limit projection** — `~38m` next to the bar tells you when you'll hit 100% at the current burn rate
-- **Latency badge** — `⚡ Xms` appears when the OAuth API is slow (>1 s)
+- **Latency badge** — `🐢 Xms` when the OAuth API is slow (yellow ≥1 s, red ≥3 s)
 - **Locale-aware** — 12h / 24h auto-detected, timezone from system
 - **Glyph modes** — `CLAUDELINE_GLYPHS=emoji` (default), `nerd` (NerdFont), `plain` (ASCII for SSH/no-emoji terminals)
 - **Cross-platform** — macOS, Linux, Windows. Node ≥ 18, Bun, or one of our self-contained binaries
+
+## Why this vs the bash original
+
+There's an excellent bash statusline by [@kamranahmedse](https://github.com/kamranahmedse/claude-statusline) that inspired claudeline. If you're choosing between them, here's where claudeline diverges:
+
+| | claudeline | bash original |
+| --- | --- | --- |
+| **macOS, Linux** | ✅ | ✅ |
+| **Windows** | ✅ (npm shim + native binary) | ❌ requires bash + jq + curl |
+| **Cost source** | server-side `cost.total_cost_usd` from Claude Code (truth) | derived from token math (drifts from reality) |
+| **Rate-limit projection** | `~38m` at current burn rate | not present |
+| **Latency badge** | yes, with yellow/red thresholds | not present |
+| **Worktree-aware git** | `⎇:branch` | branch-only |
+| **Fast mode + 1M context warnings** | yes | not present |
+| **Tests** | comprehensive suite (TDD) | 0 |
+| **Schema validation** | Zod, tolerant of `null` and unknown fields | none |
+| **Distribution** | npm + Homebrew + Bun-compiled binaries (5 platforms) | source only |
+| **Cold start (single render)** | ~85–140 ms p50 | ~30–60 ms (no Node runtime) |
+| **Runtime deps** | `zod` only | `jq`, `curl`, `bash`, `git` |
+
+If you want the leanest, no-runtime-deps option and you're macOS/Linux-only, the bash original is great. If you want a single tool that works the same on every platform with tested rendering, accurate cost, projections, and richer signals — that's what claudeline ships.
 
 ## Install
 
