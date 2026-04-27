@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as z from "zod/mini";
@@ -175,14 +176,22 @@ async function readStdin(): Promise<string> {
 // installed `claudeline` shim). Importing it from a test or another
 // module loads the symbols (`adoptCachedUsage`, etc.) without firing
 // the CLI side effects.
+//
+// `process.argv[1]` is the script path Node was invoked with. When the
+// user runs `claudeline`, that path is a symlink (npm/bun installs a
+// shim like `~/.bun/bin/claudeline → ../install/global/.../dist/cli.js`).
+// Resolve the symlink before comparing — otherwise the shim never matches
+// and `main()` silently does nothing.
 const isEntrypoint = (() => {
-  // Node sets process.argv[1] to the script path. If it points at this
-  // module's compiled bundle ("dist/cli.js") OR the source file, we
-  // are the entry. Anything else (vitest, bun test, dynamic imports)
-  // skips main().
   const argvScript = process.argv[1];
   if (!argvScript) return false;
-  return argvScript.endsWith("cli.js") || argvScript.endsWith("cli.ts");
+  let resolved: string;
+  try {
+    resolved = realpathSync(argvScript);
+  } catch {
+    resolved = argvScript;
+  }
+  return resolved.endsWith("cli.js") || resolved.endsWith("cli.ts");
 })();
 
 if (isEntrypoint) {

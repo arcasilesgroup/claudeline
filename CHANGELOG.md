@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-27
+
+### Fixed
+
+- **Critical**: 0.2.0 silently produced no output when invoked through
+  the `claudeline` shim because the entrypoint guard compared
+  `process.argv[1]` against `cli.js` *without* resolving symlinks.
+  npm and `bun link` install a shim that points at the bundled
+  `cli.js`, so the basename never matched and `main()` never ran.
+  Now uses `realpathSync(process.argv[1])` so the chain
+  `claudeline → ~/.bun/bin/claudeline → dist/cli.js` resolves
+  correctly and `--version` / `render` work whether invoked from
+  the shim, npm, brew, or directly.
+
 ## [0.2.0] - 2026-04-27
 
 The first feature release on top of the 0.1.x security/quality groundwork.
@@ -234,7 +248,8 @@ The first feature release on top of the 0.1.x security/quality groundwork.
 - Stdin and API responses validated by Zod schemas; malformed input is
   ignored and the CLI prints a safe fallback.
 
-[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/arcasilesgroup/claudeline/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/arcasilesgroup/claudeline/compare/v0.1.3...v0.1.4

@@ -119,6 +119,20 @@ describe("cli", () => {
     expect(r.stdout.trim()).toMatch(/^0\.2\.\d+$/);
   });
 
+  test("--version works when invoked via a symlink (regression: 0.2.0 was silent)", () => {
+    const fs = require("node:fs") as typeof import("node:fs");
+    const tmp = fs.mkdtempSync(join(require("node:os").tmpdir(), "cl-symlink-"));
+    const link = join(tmp, "claudeline");
+    try {
+      fs.symlinkSync(dist, link);
+      const r = spawnSync("node", [link, "--version"], { encoding: "utf-8" });
+      expect(r.status).toBe(0);
+      expect(r.stdout.trim()).toBe(pkg.version);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   test("CLAUDELINE_GLYPHS=plain switches glyphs to ASCII", () => {
     const r = spawnSync("node", [dist, "render"], {
       input:
