@@ -34,24 +34,22 @@ export interface LoadJsonOptions {
   maxAgeMs?: number;
 }
 
-export function loadJson<T = unknown>(
+export interface JsonWithMeta<T> {
+  data: T;
+  // mtime in ms since epoch. Callers compare against `Date.now()` to
+  // compute cache age for stale-while-revalidate decisions.
+  mtimeMs: number;
+}
+
+// Loader variant that returns the parsed value plus the file's mtime.
+// Used for SWR cache logic where the caller needs to decide
+// "fresh / stale-but-usable / refetch" instead of a binary
+// "fresh-or-undefined" semantics.
+export function loadJsonWithMeta<T = unknown>(
   filePath: string,
-  options: LoadJsonOptions = {},
-): T | undefined {
+): JsonWithMeta<T> | undefined {
   let fd: number | undefined;
   try {
-    // Reject symlinks before opening.
-    //
-    // POSIX path: `O_NOFOLLOW` is honoured atomically by the kernel —
-    // no TOCTOU window. We rely on it exclusively.
-    //
-    // Windows path: `O_NOFOLLOW` is silently ignored. We fall back to
-    // `lstatSync().isSymbolicLink()` which has a tiny TOCTOU window
-    // (CodeQL `js/file-system-race`). The cache and state files live
-    // in a per-uid directory created with mode `0o700`, so any
-    // attacker capable of swapping the file between lstat and open
-    // already shares the user's UID — at which point the cache is
-    // not a meaningful trust boundary.
     if (process.platform === "win32") {
       try {
         if (lstatSync(filePath).isSymbolicLink()) return undefined;
@@ -64,12 +62,6 @@ export function loadJson<T = unknown>(
       constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
     );
     const stat = fstatSync(fd);
-    if (
-      typeof options.maxAgeMs === "number" &&
-      Date.now() - stat.mtimeMs > options.maxAgeMs
-    ) {
-      return undefined;
-    }
     const buf = Buffer.alloc(stat.size);
     let read = 0;
     while (read < stat.size) {
@@ -77,7 +69,10 @@ export function loadJson<T = unknown>(
       if (n === 0) break;
       read += n;
     }
-    return JSON.parse(buf.subarray(0, read).toString("utf-8")) as T;
+    return {
+      data: JSON.parse(buf.subarray(0, read).toString("utf-8")) as T,
+      mtimeMs: stat.mtimeMs,
+    };
   } catch {
     return undefined;
   } finally {
@@ -89,6 +84,33 @@ export function loadJson<T = unknown>(
       }
     }
   }
+}
+
+export function loadJson<T = unknown>(
+  filePath: string,
+  options: LoadJsonOptions = {},
+): T | undefined {
+  // Reject symlinks before opening.
+  //
+  // POSIX path: `O_NOFOLLOW` is honoured atomically by the kernel —
+  // no TOCTOU window. We rely on it exclusively.
+  //
+  // Windows path: `O_NOFOLLOW` is silently ignored. We fall back to
+  // `lstatSync().isSymbolicLink()` which has a tiny TOCTOU window
+  // (CodeQL `js/file-system-race`). The cache and state files live
+  // in a per-uid directory created with mode `0o700`, so any
+  // attacker capable of swapping the file between lstat and open
+  // already shares the user's UID — at which point the cache is
+  // not a meaningful trust boundary.
+  const result = loadJsonWithMeta<T>(filePath);
+  if (!result) return undefined;
+  if (
+    typeof options.maxAgeMs === "number" &&
+    Date.now() - result.mtimeMs > options.maxAgeMs
+  ) {
+    return undefined;
+  }
+  return result.data;
 }
 
 export interface SaveJsonOptions {

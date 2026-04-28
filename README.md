@@ -203,6 +203,7 @@ claudeline doctor --json         Same checks, structured JSON output (for script
 claudeline summary               Show local session history (cost, models, top windows)
 claudeline summary --enable      Start tracking sessions in ~/.claudeline/sessions.jsonl
 claudeline summary --disable     Stop tracking and delete the local session log
+claudeline refresh               Force a fresh OAuth-API fetch (bypasses the cache)
 claudeline --help                Show this help
 claudeline --version             Show version
 ```
@@ -239,6 +240,31 @@ Both subcommands accept `--json` for editor / dashboard integrations. The render
 output is the structured data behind the ANSI line (model, cost, context,
 session, rate limits, latency); the doctor output is the same checks the human
 report covers, in a stable schema you can parse without ANSI.
+
+### Freshness, cache, and `claudeline refresh`
+
+claudeline only renders when Claude Code calls it. Between renders the
+statusline is frozen — that's a property of Claude Code's hook contract,
+not something we can change. What we *can* do is be fresh when called.
+
+The OAuth-API rate-limit data is cached locally with a default TTL of
+30 seconds (override with `CLAUDELINE_CACHE_TTL_SEC=15` etc., clamped
+to 1–300). Each render does one of three things based on cache age:
+
+- **0–5 s old:** serve cached, no network
+- **5 s–TTL old:** serve cached and spawn a background refresh so the
+  *next* render sees fresh data (stale-while-revalidate)
+- **>TTL or missing:** fetch synchronously
+
+If you want the freshest numbers right now, run `claudeline refresh` —
+it does a synchronous OAuth fetch and updates the cache immediately. The
+next render picks it up. `claudeline doctor` shows the current cache age
+and configured TTL so you can debug "claudeline says X, claude.ai says
+Y" mismatches.
+
+Note: when Claude Code passes `rate_limits` directly in stdin (recent
+Claude Code versions do this), claudeline uses that and skips the cache
+entirely — it's already as fresh as the active session itself.
 
 ### `claudeline doctor`
 

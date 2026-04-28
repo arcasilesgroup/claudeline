@@ -38,6 +38,11 @@ export interface CachedUsage {
   latencyMs: number;
 }
 
+export interface CachedUsageWithAge {
+  cache: CachedUsage;
+  ageMs: number;
+}
+
 export interface RenderDeps {
   readSettings(): Settings;
   getGitInfo(cwd: string): GitInfo;
@@ -48,11 +53,27 @@ export interface RenderDeps {
   glyphs: GlyphSet;
   loadToken(): string | undefined;
   fetchUsage(token: string): Promise<FetchUsageResult | undefined>;
-  cacheLoad(): CachedUsage | undefined;
+  // Returns the cached usage along with its age in ms, or undefined when
+  // the cache is missing or older than the TTL the cli wired in. The
+  // render path decides whether to also kick off a background refresh
+  // based on how stale the data is.
+  cacheLoad(): CachedUsageWithAge | undefined;
   cacheSave(data: CachedUsage): void;
   loadState(): RateState;
   saveState(state: RateState): void;
+  // Optional: spawn a detached process that re-fetches and updates the
+  // cache without blocking this render. Used for stale-while-revalidate
+  // when the cache is usable but old. Tests omit this so the SWR path
+  // stays inert in renderStatusline-only unit tests.
+  refreshInBackground?(): void;
 }
+
+// SWR threshold: cached data older than this triggers a background
+// refresh on the next render (still served immediately). Below this the
+// cache is "fresh enough" and we skip the spawn cost. 5 s matches the
+// "1-2 prompts per minute" interactive cadence — long enough to dedup
+// rapid renders, short enough that the next prompt sees fresh-ish data.
+const SWR_REVALIDATE_AFTER_MS = 5_000;
 
 const BAR_WIDTH = 10;
 // Fallback when stdin omits context_window_size — matches the legacy
@@ -391,8 +412,10 @@ async function gatherRateLimits(
 }> {
   const fromStdin = extractRateLimitsFromInput(input);
   if (fromStdin) {
-    const cached = deps.cacheLoad();
-    const extra = cached ? adaptExtra(cached.data.extra_usage, deps) : undefined;
+    const cachedInfo = deps.cacheLoad();
+    const extra = cachedInfo
+      ? adaptExtra(cachedInfo.cache.data.extra_usage, deps)
+      : undefined;
     const data: RateLimitsData = {
       fiveHour: projectAndPersistFiveHour(fromStdin.fiveHour, deps),
       sevenDay: fromStdin.sevenDay ?? undefined,
@@ -403,11 +426,15 @@ async function gatherRateLimits(
 
   // Latency surfaces only on the render that *fetches* — once it's in
   // cache, subsequent renders shouldn't keep showing a stale "API is
-  // slow" badge for up to 60s. The badge means "we just timed a slow
-  // call", not "the API was slow at some point in the last minute".
-  let cached = deps.cacheLoad();
+  // slow" badge. The badge means "we just timed a slow call", not "the
+  // API was slow at some point in the last TTL window".
+  let cachedInfo = deps.cacheLoad();
+  let cached: CachedUsage | undefined = cachedInfo?.cache;
   let latencyMs: number | undefined;
+
   if (!cached) {
+    // Cache missing or expired beyond the TTL the cli wired. Fetch
+    // synchronously so the user sees data on this render.
     const token = deps.loadToken();
     if (token) {
       const fetched = await deps.fetchUsage(token);
@@ -418,7 +445,15 @@ async function gatherRateLimits(
         recordLatencySample(latencyMs, deps);
       }
     }
+  } else if (cachedInfo && cachedInfo.ageMs > SWR_REVALIDATE_AFTER_MS) {
+    // Stale-while-revalidate: serve the cached data immediately, kick
+    // off a detached refresh in the background so the *next* render
+    // sees fresher numbers. Skipping this when there is no
+    // `refreshInBackground` (tests, or older callers) keeps render
+    // pure-data, no side effects.
+    deps.refreshInBackground?.();
   }
+
   if (!cached) {
     return {
       rateData: { fiveHour: undefined, sevenDay: undefined, extra: undefined },

@@ -294,7 +294,10 @@ describe("renderStatusline", () => {
       now: () => nowMs,
       loadToken: () => "tok",
       fetchUsage,
-      cacheLoad: () => cached,
+      // Pretend the cache is always 0ms old: we want the test to
+      // exercise the "no SWR" path here so the latency-percentile
+      // assertions stay deterministic.
+      cacheLoad: () => (cached ? { cache: cached, ageMs: 0 } : undefined),
       cacheSave: (c) => {
         cached = c;
       },
@@ -603,5 +606,100 @@ describe("renderStatuslineData (--json output)", () => {
     expect(data.directory.git.branch).toBeNull();
     expect(data.rate_limits.five_hour).toBeNull();
     expect(data.latency.last_ms).toBeNull();
+  });
+});
+
+describe("stale-while-revalidate cache path", () => {
+  // Build a fake CachedUsage that the renderer will accept. Only the
+  // shape matters; the actual values don't drive the SWR branching we
+  // care about here.
+  const fakeCache: import("../src/render.js").CachedUsage = {
+    data: {
+      five_hour: { utilization: 50, resets_at: "2026-04-26T22:30:00Z" },
+    },
+    latencyMs: 100,
+  };
+
+  test("fresh cache (age < SWR threshold) does NOT call refreshInBackground", async () => {
+    let bgCalls = 0;
+    const fetched: { calls: number } = { calls: 0 };
+    await renderStatusline(
+      { cwd: "/tmp" },
+      {
+        ...mockDeps(),
+        loadToken: () => "tok",
+        fetchUsage: async () => {
+          fetched.calls += 1;
+          return undefined;
+        },
+        cacheLoad: () => ({ cache: fakeCache, ageMs: 2_000 }),
+        refreshInBackground: () => {
+          bgCalls += 1;
+        },
+      },
+    );
+    expect(bgCalls).toBe(0);
+    expect(fetched.calls).toBe(0); // fresh cache → no sync fetch either
+  });
+
+  test("stale cache (age > SWR threshold) calls refreshInBackground but skips sync fetch", async () => {
+    let bgCalls = 0;
+    let syncFetches = 0;
+    await renderStatusline(
+      { cwd: "/tmp" },
+      {
+        ...mockDeps(),
+        loadToken: () => "tok",
+        fetchUsage: async () => {
+          syncFetches += 1;
+          return undefined;
+        },
+        // 10s old: past the 5s SWR threshold but within typical TTL.
+        cacheLoad: () => ({ cache: fakeCache, ageMs: 10_000 }),
+        refreshInBackground: () => {
+          bgCalls += 1;
+        },
+      },
+    );
+    expect(bgCalls).toBe(1);
+    expect(syncFetches).toBe(0); // we served the cached data, didn't block
+  });
+
+  test("missing cache (cli wired returned undefined) falls back to sync fetch", async () => {
+    let bgCalls = 0;
+    let syncFetches = 0;
+    await renderStatusline(
+      { cwd: "/tmp" },
+      {
+        ...mockDeps(),
+        loadToken: () => "tok",
+        fetchUsage: async () => {
+          syncFetches += 1;
+          return undefined;
+        },
+        cacheLoad: () => undefined, // beyond TTL or never cached
+        refreshInBackground: () => {
+          bgCalls += 1;
+        },
+      },
+    );
+    expect(syncFetches).toBe(1); // we fetched synchronously
+    expect(bgCalls).toBe(0); // no SWR spawn — we already have fresh data
+  });
+
+  test("renderStatusline tolerates missing refreshInBackground (older callers / tests)", async () => {
+    // Behaves like cache-fresh-no-deps: serve cached, no spawn attempted.
+    const out = await renderStatusline(
+      { cwd: "/tmp" },
+      {
+        ...mockDeps(),
+        loadToken: () => "tok",
+        fetchUsage: async () => undefined,
+        cacheLoad: () => ({ cache: fakeCache, ageMs: 20_000 }),
+        // refreshInBackground intentionally omitted.
+      },
+    );
+    expect(typeof out).toBe("string");
+    // Doesn't crash; the lack of bg refresh is silently absorbed.
   });
 });

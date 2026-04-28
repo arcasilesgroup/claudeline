@@ -1,9 +1,15 @@
+import { spawn } from "node:child_process";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { arch, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as z from "zod/mini";
 import { fetchUsage } from "./api.js";
-import { adoptCachedUsage, loadJsonCache, saveJsonCache } from "./cache.js";
+import {
+  adoptCachedUsage,
+  loadJsonCache,
+  loadJsonCacheWithAge,
+  saveJsonCache,
+} from "./cache.js";
 import { defaultCredentialSources, loadOAuthToken } from "./credentials.js";
 import { type DoctorEnv, printReport, runDoctor } from "./doctor.js";
 import { getGitInfo } from "./git.js";
@@ -12,6 +18,7 @@ import { install, uninstall } from "./installer.js";
 import { detectSkipPermissions, detectTimezone, readMacDefault } from "./platform.js";
 import {
   type CachedUsage,
+  type CachedUsageWithAge,
   renderStatusline,
   renderStatuslineData,
 } from "./render.js";
@@ -45,6 +52,7 @@ Usage:
   claudeline summary               Show local session history (cost, models, top windows)
   claudeline summary --enable      Start tracking sessions in ~/.claudeline/sessions.jsonl
   claudeline summary --disable     Stop tracking and delete the local session log
+  claudeline refresh               Force a fresh OAuth-API fetch (bypasses the 30s cache)
   claudeline --help                Show this help
   claudeline --version             Show version
 
@@ -97,6 +105,19 @@ async function main(): Promise<number> {
 
   if (cmd === "summary") {
     return runSummaryCmd(process.argv.slice(3));
+  }
+
+  if (cmd === "refresh") {
+    return await runRefreshCmd();
+  }
+
+  // Internal subcommand used by stale-while-revalidate spawns. Hidden
+  // from `--help` because it has no UX value to surface — it's the
+  // background fetch claudeline kicks off when the cache crosses the
+  // SWR threshold. Idempotent: safe to call any time, no output, exits
+  // 0 unless something went really wrong.
+  if (cmd === "_refresh") {
+    return await runInternalRefreshCmd();
   }
 
   if (cmd === "render" || cmd === undefined) {
@@ -185,6 +206,11 @@ function buildRealDoctorEnv(): DoctorEnv {
     stateExists: () => existsSync(statePath),
     stateLoad: () => loadState(statePath),
     nodeVersion: process.versions.node,
+    cacheAgeMs: () => {
+      const meta = loadJsonCacheWithAge<unknown>(cachePath);
+      return meta ? Math.max(0, Date.now() - meta.mtimeMs) : undefined;
+    },
+    cacheTtlMs: resolveCacheTtlMs(process.env["CLAUDELINE_CACHE_TTL_SEC"]),
   };
 
   const bunVersion = process.versions["bun"];
@@ -237,6 +263,7 @@ async function runRender(args: string[]): Promise<number> {
   const glyphs = glyphsFor(parseGlyphMode(process.env["CLAUDELINE_GLYPHS"]));
 
   const credentialSources = defaultCredentialSources();
+  const ttlMs = resolveCacheTtlMs(process.env["CLAUDELINE_CACHE_TTL_SEC"]);
 
   const deps = {
     readSettings: () => readSettingsFile(),
@@ -248,8 +275,19 @@ async function runRender(args: string[]): Promise<number> {
     glyphs,
     loadToken: () => loadOAuthToken(credentialSources),
     fetchUsage: async (token: string) => fetchUsage(token),
-    cacheLoad: () => adoptCachedUsage(loadJsonCache<unknown>(cachePath, 60_000)),
+    cacheLoad: (): CachedUsageWithAge | undefined => {
+      const meta = loadJsonCacheWithAge<unknown>(cachePath);
+      if (!meta) return undefined;
+      const ageMs = Date.now() - meta.mtimeMs;
+      // Beyond TTL we discard — render should fetch synchronously so
+      // the user doesn't see day-old numbers after a sleep/wake cycle.
+      if (ageMs > ttlMs) return undefined;
+      const adopted = adoptCachedUsage(meta.data);
+      if (!adopted) return undefined;
+      return { cache: adopted, ageMs };
+    },
     cacheSave: (data: CachedUsage) => saveJsonCache(cachePath, data),
+    refreshInBackground: () => spawnDetachedRefresh(),
     loadState: (): RateState => loadState(statePath),
     saveState: (state: RateState) => saveState(statePath, state),
   };
@@ -385,6 +423,96 @@ function bold(s: string): string {
 function dim(s: string): string {
   if (!process.stdout.isTTY || process.env["NO_COLOR"]) return s;
   return `\x1b[2m${s}\x1b[0m`;
+}
+
+// Cache TTL: max age of the OAuth-API cache before a render forces a
+// synchronous re-fetch. Stale-while-revalidate kicks in earlier than
+// this (see SWR_REVALIDATE_AFTER_MS in render.ts) — TTL is the
+// hard ceiling, not the refresh cadence.
+const CACHE_TTL_DEFAULT_MS = 30_000;
+const CACHE_TTL_MIN_SEC = 1;
+const CACHE_TTL_MAX_SEC = 300;
+
+export function resolveCacheTtlMs(envValue: string | undefined): number {
+  if (envValue === undefined || envValue === "") return CACHE_TTL_DEFAULT_MS;
+  const n = Number(envValue);
+  if (!Number.isFinite(n) || n < CACHE_TTL_MIN_SEC || n > CACHE_TTL_MAX_SEC) {
+    // Invalid input is silent — falling back to the default keeps the
+    // hot path crash-free. `claudeline doctor` will surface the actual
+    // TTL in use so users notice if their value was rejected.
+    return CACHE_TTL_DEFAULT_MS;
+  }
+  return Math.round(n * 1000);
+}
+
+// Spawn a detached `claudeline _refresh` subprocess. Used by SWR — the
+// main render returns immediately while this child fetches OAuth + writes
+// the cache for the *next* render to see. We don't await; failure is
+// silent because the next render will fall back to a synchronous fetch
+// if needed.
+function spawnDetachedRefresh(): void {
+  try {
+    const child = spawn("claudeline", ["_refresh"], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.on("error", () => {
+      // claudeline not on PATH (rare — usually a test environment or a
+      // partial install). SWR is opportunistic so we don't surface this.
+    });
+    child.unref();
+  } catch {
+    // Same: never crash the parent render on spawn failure.
+  }
+}
+
+// User-facing `claudeline refresh`. Forces a synchronous OAuth fetch
+// and writes the cache. Useful when the user wants the freshest numbers
+// before they look at the statusline (e.g. they think they're close to
+// the rate-limit cap and want to verify).
+async function runRefreshCmd(): Promise<number> {
+  const uid = typeof process.getuid === "function" ? process.getuid() : "shared";
+  const cachePath = join(tmpdir(), `claudeline-${uid}`, "usage-cache.json");
+  const token = loadOAuthToken(defaultCredentialSources());
+  if (!token) {
+    process.stderr.write(
+      "claudeline refresh: no OAuth token found. Run `claudeline doctor` to check credential sources.\n",
+    );
+    return 1;
+  }
+  const fetched = await fetchUsage(token);
+  if (!fetched) {
+    process.stderr.write(
+      "claudeline refresh: OAuth API fetch failed. Check connectivity / `claudeline doctor`.\n",
+    );
+    return 1;
+  }
+  saveJsonCache(cachePath, { data: fetched.data, latencyMs: fetched.latencyMs });
+  process.stdout.write(`Cache refreshed (${fetched.latencyMs} ms latency).\n`);
+  return 0;
+}
+
+// Internal `_refresh` for SWR background spawns. Same logic as the
+// user-facing version but silent on stdout/stderr — failures don't
+// propagate because the spawning render has already moved on.
+async function runInternalRefreshCmd(): Promise<number> {
+  try {
+    const uid =
+      typeof process.getuid === "function" ? process.getuid() : "shared";
+    const cachePath = join(tmpdir(), `claudeline-${uid}`, "usage-cache.json");
+    const token = loadOAuthToken(defaultCredentialSources());
+    if (!token) return 0;
+    const fetched = await fetchUsage(token);
+    if (!fetched) return 0;
+    saveJsonCache(cachePath, {
+      data: fetched.data,
+      latencyMs: fetched.latencyMs,
+    });
+  } catch {
+    // Silent: the next render does its own sync fetch if the cache is
+    // still stale.
+  }
+  return 0;
 }
 
 function parseForce24(raw: string | undefined): boolean | undefined {

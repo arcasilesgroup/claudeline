@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-28
+
+Freshness improvements for the rate-limit ribbon. The statusline still
+refreshes only when Claude Code triggers a render — that's a property
+of the host contract, not something we can change — but when it *does*
+trigger we now serve fresher data and surface the cache state explicitly
+so users can debug "claudeline says 42% but claude.ai says 51%" without
+guessing.
+
+### Added
+
+- **Stale-while-revalidate cache.** Renders below the SWR threshold
+  (5 s) serve cached data immediately, no API call. Renders between 5 s
+  and the TTL ceiling serve cached data *and* spawn a detached
+  `claudeline _refresh` subprocess so the next render sees fresh
+  numbers. Renders past the TTL fetch synchronously, as before.
+- **Cache TTL configurable via `CLAUDELINE_CACHE_TTL_SEC`.** Default
+  dropped from 60 s → 30 s; clamped to [1, 300] s; invalid values fall
+  back to 30 s silently (the hot path never crashes on a fat-fingered
+  env var).
+- **`claudeline refresh`.** User-facing: forces a synchronous OAuth
+  fetch and writes the cache. Useful when you want the freshest numbers
+  before a critical decision (e.g. "am I really under the 5h cap?").
+  Internal `_refresh` variant is the silent backend the SWR spawn calls.
+- **Cache age in `doctor`.** New Diagnostics line:
+  `Cache age: 23s (TTL 30s)` (or `Cache: empty (TTL 30s)` if no cache
+  yet). Surfaces in both the human and `--json` outputs so you can
+  correlate stale numbers with cache freshness.
+
+### Changed
+
+- **`RenderDeps.cacheLoad`** now returns `{ cache, ageMs } | undefined`
+  instead of `CachedUsage | undefined`. The cli wires the TTL gate; the
+  render path uses the age to decide between fresh-serve, SWR-serve,
+  and sync-fetch. Type-only break — `RenderDeps` is internal-only, no
+  downstream consumer.
+- **`DoctorEnv`** gains required `cacheAgeMs(): number | undefined` and
+  `cacheTtlMs: number` fields so the new Diagnostics line stays pure
+  (no fs access from doctor itself). Same internal-only type, no
+  external impact.
+
+### Internal
+
+- New `loadJsonWithMeta` / `loadJsonCacheWithAge` helpers in
+  `safeJsonFile.ts` / `cache.ts`. Same security posture as `loadJson`
+  (O_NOFOLLOW, fd-based read) but exposes mtime so SWR callers can
+  decide age semantics.
+
+### Tests
+
+- 320 → 329 (+9). New SWR coverage in `tests/render.test.ts` (fresh
+  cache → no spawn / no fetch; stale cache → spawn but no sync fetch;
+  missing cache → sync fetch path; tolerates absent
+  `refreshInBackground`). New `resolveCacheTtlMs` parser tests in
+  `tests/cli.test.ts` (default, in-range, out-of-range fallback). New
+  cache-age formatter cases in `tests/doctor.test.ts` (empty, custom
+  TTL display).
+
 ## [0.4.0] - 2026-04-28
 
 Adoption-driven feature bundle. All additive — no breaking changes to

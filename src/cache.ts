@@ -1,11 +1,21 @@
 import type { CachedUsage } from "./render.js";
-import { loadJson, saveJson } from "./safeJsonFile.js";
+import { loadJson, loadJsonWithMeta, saveJson, type JsonWithMeta } from "./safeJsonFile.js";
 
 export function loadJsonCache<T = unknown>(
   filePath: string,
   maxAgeMs: number,
 ): T | undefined {
   return loadJson<T>(filePath, { maxAgeMs });
+}
+
+// SWR-friendly loader: returns the cached value plus the on-disk mtime
+// regardless of age. The caller decides whether to use it as fresh, as
+// stale-but-usable, or to discard. Returns undefined only when the
+// file is missing/unreadable/symlinked-on-Windows.
+export function loadJsonCacheWithAge<T = unknown>(
+  filePath: string,
+): JsonWithMeta<T> | undefined {
+  return loadJsonWithMeta<T>(filePath);
 }
 
 export function saveJsonCache(filePath: string, data: unknown): void {

@@ -55,6 +55,11 @@ function happyEnv(overrides: Partial<DoctorEnv> = {}): DoctorEnv {
     stateExists: () => true,
     stateLoad: () => ({ fiveHour: { pct: 50, epoch: 1777221900 } }),
     nodeVersion: "20.10.0",
+    // Default to a cache that's 12 s old with the production 30 s TTL
+    // so happy-path tests exercise the "Cache age: 12s (TTL 30s)" branch.
+    // Tests that need the empty-cache message override `cacheAgeMs`.
+    cacheAgeMs: () => 12_000,
+    cacheTtlMs: 30_000,
     ...overrides,
   };
 }
@@ -391,10 +396,27 @@ describe("printReport", () => {
     expect(printed).toContain("Version: claudeline");
     expect(printed).toContain("Platform: darwin-arm64");
     expect(printed).toContain(`Cache directory: ${HAPPY_CACHE_DIR}`);
+    // Cache age + TTL: surfaces here so users can debug "statusline
+    // numbers don't match claude.ai" — they see immediately how stale
+    // the cache is and what the configured ceiling is.
+    expect(printed).toContain("Cache age: 12s (TTL 30s)");
     expect(printed).toContain("statusLine wired");
     expect(printed).toContain("Summary:");
     expect(printed).toContain("0 warnings");
     expect(printed).toContain("0 errors");
+  });
+
+  test("cache age line shows 'empty' when no cache file exists", () => {
+    const env = happyEnv({ cacheAgeMs: () => undefined });
+    const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
+    expect(printed).toContain("Cache: empty (TTL 30s)");
+    expect(printed).not.toContain("Cache age:");
+  });
+
+  test("cache age TTL reflects the configured value", () => {
+    const env = happyEnv({ cacheAgeMs: () => 8_000, cacheTtlMs: 60_000 });
+    const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
+    expect(printed).toContain("Cache age: 8s (TTL 60s)");
   });
 
   test("warning case renders the issue block with a tree-style fix", () => {

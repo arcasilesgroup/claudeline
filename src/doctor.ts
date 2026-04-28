@@ -87,6 +87,15 @@ export interface DoctorEnv {
   // Resolved Node and (optional) Bun versions for the engine info line.
   nodeVersion: string;
   bunVersion?: string;
+  // Age in ms of the OAuth-API cache file at conventional path, or
+  // undefined if the cache is missing/unreadable. Surfaces in the
+  // Diagnostics section so users can correlate "statusline numbers vs
+  // claude.ai" mismatches with cache freshness.
+  cacheAgeMs(): number | undefined;
+  // The configured cache TTL in ms (default 30 000; overridable via
+  // CLAUDELINE_CACHE_TTL_SEC). Surfaces alongside the age so the user
+  // sees both the current freshness and the ceiling.
+  cacheTtlMs: number;
 }
 
 const KNOWN_EFFORT_LEVELS = new Set(["max", "xhigh", "high", "medium", "low"]);
@@ -325,12 +334,24 @@ export function checkEngine(env: DoctorEnv): DoctorLine {
 // Composed inline so we don't grow the per-check public surface for
 // trivial constants. Tests exercise these via `runDoctor` composition.
 function diagnosticsLines(env: DoctorEnv): DoctorLine[] {
-  return [
+  const lines: DoctorLine[] = [
     { status: "info", message: `Version: claudeline ${VERSION}` },
     checkEngine(env),
     { status: "info", message: `Platform: ${env.platform}-${env.arch}` },
     { status: "info", message: `Cache directory: ${cacheDirFor(env)}` },
   ];
+  const ageMs = env.cacheAgeMs();
+  const ttlSec = Math.max(1, Math.round(env.cacheTtlMs / 1000));
+  if (ageMs === undefined) {
+    lines.push({ status: "info", message: `Cache: empty (TTL ${ttlSec}s)` });
+  } else {
+    const ageSec = Math.max(0, Math.round(ageMs / 1000));
+    lines.push({
+      status: "info",
+      message: `Cache age: ${ageSec}s (TTL ${ttlSec}s)`,
+    });
+  }
+  return lines;
 }
 
 // Compose all checks into sections. Section order is the visual order

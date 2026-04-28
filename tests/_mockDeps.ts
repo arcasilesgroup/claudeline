@@ -26,7 +26,7 @@ export function mockDeps(overrides: Partial<RenderDeps> = {}): RenderDeps {
     glyphs: glyphsFor("emoji"),
     fetchUsage: async () => undefined,
     loadToken: () => undefined,
-    cacheLoad: () => undefined,
+    cacheLoad: () => undefined, // SWR-aware: returns { cache, ageMs } | undefined
     cacheSave: () => {},
     loadState: () => stateStore,
     saveState: (s) => {

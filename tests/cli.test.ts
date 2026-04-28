@@ -305,3 +305,30 @@ describe("adoptCachedUsage (cache-shape migration)", () => {
     expect(adopted?.latencyMs).toBe(0);
   });
 });
+
+describe("resolveCacheTtlMs (CLAUDELINE_CACHE_TTL_SEC)", () => {
+  test("defaults to 30000ms when env unset", async () => {
+    const { resolveCacheTtlMs } = await import("../src/cli.js");
+    expect(resolveCacheTtlMs(undefined)).toBe(30_000);
+    expect(resolveCacheTtlMs("")).toBe(30_000);
+  });
+
+  test("accepts a valid in-range value", async () => {
+    const { resolveCacheTtlMs } = await import("../src/cli.js");
+    expect(resolveCacheTtlMs("15")).toBe(15_000);
+    expect(resolveCacheTtlMs("60")).toBe(60_000);
+    expect(resolveCacheTtlMs("1")).toBe(1_000);
+    expect(resolveCacheTtlMs("300")).toBe(300_000);
+  });
+
+  test("rejects out-of-range values silently and returns the default", async () => {
+    // Out-of-range falls back to default rather than throwing — the
+    // hot path should never crash on a fat-fingered env var.
+    const { resolveCacheTtlMs } = await import("../src/cli.js");
+    expect(resolveCacheTtlMs("0")).toBe(30_000); // below MIN
+    expect(resolveCacheTtlMs("-5")).toBe(30_000);
+    expect(resolveCacheTtlMs("999")).toBe(30_000); // above MAX
+    expect(resolveCacheTtlMs("garbage")).toBe(30_000);
+    expect(resolveCacheTtlMs("NaN")).toBe(30_000);
+  });
+});
