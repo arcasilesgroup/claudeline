@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-04-28
+
+UX fix on top of 0.4.2. Reported live: user added
+`export CLAUDELINE_PREFER_API=1` to `.zshrc`, sourced it, ran
+`claudeline refresh`, but the hint kept saying "set this env var" and
+`doctor` still showed "stdin → api fallback (default)". Either the env
+didn't propagate or claudeline didn't see it — and there was no way to
+tell which from the inside. That's the kind of silent-failure / no-feedback
+loop that breaks user trust.
+
+### Added
+
+- **Persistent config file** at `~/.claudeline/config.json` (JSON, mode
+  `0o600`, owner-only). Mirrors the env-var surface but lives in a
+  predictable spot so subprocess env propagation isn't load-bearing.
+- **`claudeline config get | set | unset | edit`** — first-class
+  commands so users don't have to hand-edit JSON or chase env-var
+  precedence rules:
+  - `claudeline config get` — shows resolved values *and* their source
+    (`[env]` / `[config]` / `[default]`) plus verbatim env values.
+  - `claudeline config set <key> <value>` — persists `prefer-api` or
+    `cache-ttl-sec`. Validates type / range. Warns when env is also set.
+  - `claudeline config unset <key>` — removes a setting; deletes the
+    file when no settings remain.
+  - `claudeline config edit` — opens the file in `$EDITOR`.
+- **Doctor's Diagnostics now shows the effective source for every
+  setting** plus the verbatim env values claudeline actually sees:
+  - `Rate-limit source: api (refresh moves the bar) [from config]`
+  - `Cache TTL: 30s [from default]`
+  - `CLAUDELINE_PREFER_API env: "1"` or `(unset)`
+  - `CLAUDELINE_CACHE_TTL_SEC env: (unset)`
+  - `Config file: /Users/me/.claudeline/config.json (present)`
+
+  This is the diagnostic that fixes the "I exported it but it doesn't
+  work" failure mode — users can now see at a glance whether their env
+  reached claudeline, where the active value came from, and where to
+  put a persistent override.
+
+### Changed
+
+- **Settings precedence:** env > config > default. Same env-var names
+  as 0.4.2, but with the file fallback now in place. Setting a value
+  via `claudeline config set` is sufficient — no shell rc edit, no
+  reload, no env propagation worries.
+- **Refresh hint slimmed** from a 3-line paragraph to one line. Points
+  at the new `claudeline config set prefer-api true` instead of the
+  env-var dance. Suppressed entirely when `prefer-api` is already on.
+
+### Internal
+
+- New `src/config.ts` (~140 LOC pure functions: `readConfig`,
+  `writeConfig`, `ensureConfigFile`, `deleteConfig`, `resolveBoolean`,
+  `resolveSeconds`). All resolution helpers are reusable for future
+  settings.
+- `DoctorEnv` gains `cacheTtlSource`, `preferApiSource`,
+  `envPreferApi`, `envCacheTtlSec`, `configFile`, `configFilePresent`
+  so the diagnostic block stays a pure transform of the env, no fs
+  access from doctor itself.
+
+### Tests
+
+- 336 → 356 (+20). New `tests/config.test.ts` covers read/write
+  round-trip, malformed-file tolerance, type rejection at read time,
+  ensureConfigFile idempotency, full env→config→default precedence
+  for both boolean and seconds resolvers (including out-of-range
+  fallback). Updated `tests/doctor.test.ts` for the new wording +
+  source tags.
+
 ## [0.4.2] - 2026-04-28
 
 Honesty patch on top of 0.4.1's freshness work. Reported by a user who

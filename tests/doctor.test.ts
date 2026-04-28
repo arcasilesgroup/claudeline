@@ -60,7 +60,13 @@ function happyEnv(overrides: Partial<DoctorEnv> = {}): DoctorEnv {
     // Tests that need the empty-cache message override `cacheAgeMs`.
     cacheAgeMs: () => 12_000,
     cacheTtlMs: 30_000,
+    cacheTtlSource: "default",
     preferApi: false,
+    preferApiSource: "default",
+    envPreferApi: undefined,
+    envCacheTtlSec: undefined,
+    configFile: "/tmp/test-config.json",
+    configFilePresent: false,
     ...overrides,
   };
 }
@@ -420,17 +426,48 @@ describe("printReport", () => {
     expect(printed).toContain("Cache age: 8s (TTL 60s)");
   });
 
-  test("rate-limit source line shows the default when preferApi=false", () => {
+  test("rate-limit source line shows default + source tag when preferApi=false", () => {
     const printed = stripAnsi(printReport(runDoctor(happyEnv()), { color: false }));
-    expect(printed).toContain("Rate-limit source: stdin → api fallback (default)");
-    expect(printed).not.toContain("CLAUDELINE_PREFER_API=1");
+    expect(printed).toContain("Rate-limit source: stdin → api fallback");
+    expect(printed).toContain("[from default]");
   });
 
-  test("rate-limit source line flips to api when preferApi=true", () => {
-    const env = happyEnv({ preferApi: true });
+  test("rate-limit source line flips to api when preferApi=true and tags the env source", () => {
+    const env = happyEnv({
+      preferApi: true,
+      preferApiSource: "env",
+      envPreferApi: "1",
+    });
     const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
-    expect(printed).toContain("Rate-limit source: api (CLAUDELINE_PREFER_API=1)");
-    expect(printed).not.toContain("stdin → api fallback");
+    expect(printed).toContain("Rate-limit source: api (refresh moves the bar)");
+    expect(printed).toContain("[from env]");
+    // Verbatim env value visible so users debug propagation surprises.
+    expect(printed).toContain('CLAUDELINE_PREFER_API env: "1"');
+  });
+
+  test("env line shows (unset) when env var isn't set", () => {
+    const printed = stripAnsi(printReport(runDoctor(happyEnv()), { color: false }));
+    expect(printed).toContain("CLAUDELINE_PREFER_API env: (unset)");
+    expect(printed).toContain("CLAUDELINE_CACHE_TTL_SEC env: (unset)");
+  });
+
+  test("config file line shows path + presence", () => {
+    const env = happyEnv({
+      configFile: "/Users/me/.claudeline/config.json",
+      configFilePresent: true,
+    });
+    const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
+    expect(printed).toContain("Config file: /Users/me/.claudeline/config.json (present)");
+  });
+
+  test("config-sourced setting shows [from config]", () => {
+    const env = happyEnv({
+      preferApi: true,
+      preferApiSource: "config",
+      configFilePresent: true,
+    });
+    const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
+    expect(printed).toContain("[from config]");
   });
 
   test("warning case renders the issue block with a tree-style fix", () => {

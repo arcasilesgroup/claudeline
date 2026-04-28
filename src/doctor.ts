@@ -93,14 +93,26 @@ export interface DoctorEnv {
   // claude.ai" mismatches with cache freshness.
   cacheAgeMs(): number | undefined;
   // The configured cache TTL in ms (default 30 000; overridable via
-  // CLAUDELINE_CACHE_TTL_SEC). Surfaces alongside the age so the user
-  // sees both the current freshness and the ceiling.
+  // CLAUDELINE_CACHE_TTL_SEC or `claudeline config`). Surfaces alongside
+  // the age so the user sees both the current freshness and the ceiling.
   cacheTtlMs: number;
-  // Whether CLAUDELINE_PREFER_API is set. When true, render skips the
-  // input.rate_limits stdin path and always uses the OAuth-API cache.
-  // Surfaced in Diagnostics so users know which source `claudeline
-  // refresh` is going to actually drive.
+  // "env" / "config" / "default" — where the current cacheTtlMs came
+  // from. Lets doctor explain *why* a TTL is in effect.
+  cacheTtlSource: "env" | "config" | "default";
+  // Whether render should skip stdin and use the OAuth-API cache. Same
+  // resolution rules: env > config.preferApi > default false.
   preferApi: boolean;
+  preferApiSource: "env" | "config" | "default";
+  // Verbatim env values (or undefined) so doctor can show what
+  // claudeline *actually sees* in its process env. The most common bug
+  // report is "I exported X but it's not working" — surfacing the raw
+  // value tells the user immediately whether it propagated.
+  envPreferApi: string | undefined;
+  envCacheTtlSec: string | undefined;
+  // Path + presence of the user's persistent config file. Doctor lists
+  // both so the user knows where to look / where to put a setting.
+  configFile: string;
+  configFilePresent: boolean;
 }
 
 const KNOWN_EFFORT_LEVELS = new Set(["max", "xhigh", "high", "medium", "low"]);
@@ -357,21 +369,49 @@ function diagnosticsLines(env: DoctorEnv): DoctorLine[] {
     });
   }
   // Rate-limit source preference. Tells the user which path
-  // `claudeline refresh` actually drives. The default (stdin priority)
-  // is silent because it's the common case; only surface when the
-  // override is on so the diagnostics line stays terse for everyone.
-  if (env.preferApi) {
-    lines.push({
-      status: "info",
-      message: "Rate-limit source: api (CLAUDELINE_PREFER_API=1)",
-    });
-  } else {
-    lines.push({
-      status: "info",
-      message: "Rate-limit source: stdin → api fallback (default)",
-    });
-  }
+  // `claudeline refresh` actually drives, and *why* (env / config /
+  // default). The verbose form is intentional — the most common
+  // support question is "why didn't this take?", and the answer is
+  // almost always a precedence/propagation surprise.
+  const preferLabel = env.preferApi
+    ? "api (refresh moves the bar)"
+    : "stdin → api fallback";
+  lines.push({
+    status: "info",
+    message: `Rate-limit source: ${preferLabel} [from ${env.preferApiSource}]`,
+  });
+  // TTL resolved value + where it came from.
+  lines.push({
+    status: "info",
+    message: `Cache TTL: ${ttlSec}s [from ${env.cacheTtlSource}]`,
+  });
+  // Verbatim env values so the user can spot propagation failures
+  // immediately. Empty values render as `(unset)`.
+  lines.push({
+    status: "info",
+    message: `CLAUDELINE_PREFER_API env: ${formatEnvValue(env.envPreferApi)}`,
+  });
+  lines.push({
+    status: "info",
+    message: `CLAUDELINE_CACHE_TTL_SEC env: ${formatEnvValue(env.envCacheTtlSec)}`,
+  });
+  // Config-file presence + path. If precedence picked from "config",
+  // the user can edit this path; if not, this tells them where to put
+  // a persistent setting.
+  const configState = env.configFilePresent ? "present" : "not created";
+  lines.push({
+    status: "info",
+    message: `Config file: ${env.configFile} (${configState})`,
+  });
   return lines;
+}
+
+function formatEnvValue(v: string | undefined): string {
+  if (v === undefined) return "(unset)";
+  if (v === "") return "(empty)";
+  // Quote so trailing whitespace is visible to the user — a frequent
+  // copy-paste mishap.
+  return `"${v}"`;
 }
 
 // Compose all checks into sections. Section order is the visual order

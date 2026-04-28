@@ -10,6 +10,18 @@ import {
   loadJsonCacheWithAge,
   saveJsonCache,
 } from "./cache.js";
+import {
+  type ClaudelineConfig,
+  type ResolvedSetting,
+  type Source,
+  defaultConfigPaths,
+  deleteConfig,
+  ensureConfigFile,
+  readConfig,
+  resolveBoolean,
+  resolveSeconds,
+  writeConfig,
+} from "./config.js";
 import { defaultCredentialSources, loadOAuthToken } from "./credentials.js";
 import { type DoctorEnv, printReport, runDoctor } from "./doctor.js";
 import { getGitInfo } from "./git.js";
@@ -53,6 +65,10 @@ Usage:
   claudeline summary --enable      Start tracking sessions in ~/.claudeline/sessions.jsonl
   claudeline summary --disable     Stop tracking and delete the local session log
   claudeline refresh               Force a fresh OAuth-API fetch (bypasses the 30s cache)
+  claudeline config get            Show current config (file values + env overrides + sources)
+  claudeline config set <k> <v>    Persist a setting in ~/.claudeline/config.json
+  claudeline config unset <k>      Remove a setting from ~/.claudeline/config.json
+  claudeline config edit           Open ~/.claudeline/config.json in $EDITOR
   claudeline --help                Show this help
   claudeline --version             Show version
 
@@ -109,6 +125,10 @@ async function main(): Promise<number> {
 
   if (cmd === "refresh") {
     return await runRefreshCmd();
+  }
+
+  if (cmd === "config") {
+    return await runConfigCmd(process.argv.slice(3));
   }
 
   // Internal subcommand used by stale-while-revalidate spawns. Hidden
@@ -180,6 +200,28 @@ function buildRealDoctorEnv(): DoctorEnv {
   const cachePath = join(cacheDir, "usage-cache.json");
   const statePath = join(cacheDir, "state.json");
   const settingsPath = defaultSettingsPath();
+  const configPaths = defaultConfigPaths();
+  const config = readConfig(configPaths);
+
+  // Resolve once so `doctor` and the rest of buildRealDoctorEnv see the
+  // same answer for env / config / default precedence.
+  const resolved = {
+    preferApi: resolveBoolean({
+      envValue: process.env["CLAUDELINE_PREFER_API"],
+      configValue: config.preferApi,
+      defaultValue: false,
+    }),
+    cacheTtlMs: ((): ResolvedSetting<number> => {
+      const sec = resolveSeconds({
+        envValue: process.env["CLAUDELINE_CACHE_TTL_SEC"],
+        configValue: config.cacheTtlSec,
+        defaultValueSec: 30,
+        minSec: 1,
+        maxSec: 300,
+      });
+      return { value: sec.value * 1000, source: sec.source };
+    })(),
+  };
 
   const env: DoctorEnv = {
     envVars: process.env,
@@ -210,8 +252,14 @@ function buildRealDoctorEnv(): DoctorEnv {
       const meta = loadJsonCacheWithAge<unknown>(cachePath);
       return meta ? Math.max(0, Date.now() - meta.mtimeMs) : undefined;
     },
-    cacheTtlMs: resolveCacheTtlMs(process.env["CLAUDELINE_CACHE_TTL_SEC"]),
-    preferApi: parseBooleanEnv(process.env["CLAUDELINE_PREFER_API"]),
+    cacheTtlMs: resolved.cacheTtlMs.value,
+    cacheTtlSource: resolved.cacheTtlMs.source,
+    preferApi: resolved.preferApi.value,
+    preferApiSource: resolved.preferApi.source,
+    envPreferApi: process.env["CLAUDELINE_PREFER_API"],
+    envCacheTtlSec: process.env["CLAUDELINE_CACHE_TTL_SEC"],
+    configFile: defaultConfigPaths().file,
+    configFilePresent: existsSync(defaultConfigPaths().file),
   };
 
   const bunVersion = process.versions["bun"];
@@ -264,7 +312,20 @@ async function runRender(args: string[]): Promise<number> {
   const glyphs = glyphsFor(parseGlyphMode(process.env["CLAUDELINE_GLYPHS"]));
 
   const credentialSources = defaultCredentialSources();
-  const ttlMs = resolveCacheTtlMs(process.env["CLAUDELINE_CACHE_TTL_SEC"]);
+  const config = readConfig(defaultConfigPaths());
+  const preferApi = resolveBoolean({
+    envValue: process.env["CLAUDELINE_PREFER_API"],
+    configValue: config.preferApi,
+    defaultValue: false,
+  }).value;
+  const ttlSec = resolveSeconds({
+    envValue: process.env["CLAUDELINE_CACHE_TTL_SEC"],
+    configValue: config.cacheTtlSec,
+    defaultValueSec: 30,
+    minSec: 1,
+    maxSec: 300,
+  }).value;
+  const ttlMs = ttlSec * 1000;
 
   const deps = {
     readSettings: () => readSettingsFile(),
@@ -289,7 +350,7 @@ async function runRender(args: string[]): Promise<number> {
     },
     cacheSave: (data: CachedUsage) => saveJsonCache(cachePath, data),
     refreshInBackground: () => spawnDetachedRefresh(),
-    preferApi: parseBooleanEnv(process.env["CLAUDELINE_PREFER_API"]),
+    preferApi,
     loadState: (): RateState => loadState(statePath),
     saveState: (state: RateState) => saveState(statePath, state),
   };
@@ -500,20 +561,176 @@ async function runRefreshCmd(): Promise<number> {
     return 1;
   }
   saveJsonCache(cachePath, { data: fetched.data, latencyMs: fetched.latencyMs });
-  const preferApi = parseBooleanEnv(process.env["CLAUDELINE_PREFER_API"]);
+  const config = readConfig(defaultConfigPaths());
+  const preferApi = resolveBoolean({
+    envValue: process.env["CLAUDELINE_PREFER_API"],
+    configValue: config.preferApi,
+    defaultValue: false,
+  }).value;
   process.stdout.write(`Cache refreshed (${fetched.latencyMs} ms latency).\n`);
   if (!preferApi) {
-    // Most users won't have CLAUDELINE_PREFER_API set, which means
-    // recent Claude Code versions (which pass `rate_limits` in stdin)
-    // will use that source instead of this cache. Surface the gap so
-    // they know why their statusline didn't move after a refresh.
+    // One-liner instead of the 0.4.2 paragraph. The full explanation
+    // moved to README + `claudeline config get` so this prompt stays
+    // out of the way when refresh is used in scripts.
     process.stdout.write(
-      "Note: when Claude Code passes rate_limits in stdin, the statusline\n" +
-        "uses those values directly and bypasses this cache. To make refresh\n" +
-        "drive what's shown, export CLAUDELINE_PREFER_API=1 and reload Claude Code.\n",
+      "  ↳ stdin source is in effect, so this cache may not change the bar. " +
+        "Run `claudeline config set prefer-api true` to make refresh drive it.\n",
     );
   }
   return 0;
+}
+
+// Known config keys with their canonical CLI shorthand. Centralised so
+// `set` and `unset` accept the same names and `get` prints them in a
+// stable order.
+const CONFIG_KEYS = ["prefer-api", "cache-ttl-sec"] as const;
+type ConfigKey = (typeof CONFIG_KEYS)[number];
+
+async function runConfigCmd(args: string[]): Promise<number> {
+  const sub = args[0];
+  const paths = defaultConfigPaths();
+
+  if (sub === undefined || sub === "get" || sub === "list" || sub === "show") {
+    const config = readConfig(paths);
+    const preferApi = resolveBoolean({
+      envValue: process.env["CLAUDELINE_PREFER_API"],
+      configValue: config.preferApi,
+      defaultValue: false,
+    });
+    const cacheTtl = resolveSeconds({
+      envValue: process.env["CLAUDELINE_CACHE_TTL_SEC"],
+      configValue: config.cacheTtlSec,
+      defaultValueSec: 30,
+      minSec: 1,
+      maxSec: 300,
+    });
+    const out: string[] = [];
+    out.push("");
+    out.push(`  config file: ${paths.file}`);
+    out.push(`  config exists: ${existsSync(paths.file) ? "yes" : "no"}`);
+    out.push("");
+    out.push(`  prefer-api      = ${preferApi.value} [${preferApi.source}]`);
+    out.push(`  cache-ttl-sec   = ${cacheTtl.value} [${cacheTtl.source}]`);
+    out.push("");
+    out.push("  env (verbatim):");
+    out.push(
+      `    CLAUDELINE_PREFER_API     = ${envOrUnset(process.env["CLAUDELINE_PREFER_API"])}`,
+    );
+    out.push(
+      `    CLAUDELINE_CACHE_TTL_SEC  = ${envOrUnset(process.env["CLAUDELINE_CACHE_TTL_SEC"])}`,
+    );
+    out.push("");
+    process.stdout.write(`${out.join("\n")}\n`);
+    return 0;
+  }
+
+  if (sub === "set") {
+    const key = args[1] as ConfigKey | undefined;
+    const value = args[2];
+    if (!key || value === undefined) {
+      process.stderr.write(
+        "claudeline config set <key> <value>\nKeys: prefer-api | cache-ttl-sec\n",
+      );
+      return 2;
+    }
+    if (!CONFIG_KEYS.includes(key)) {
+      process.stderr.write(
+        `claudeline config: unknown key "${key}". Known: ${CONFIG_KEYS.join(", ")}\n`,
+      );
+      return 2;
+    }
+    const config = readConfig(paths);
+    if (key === "prefer-api") {
+      const v = value.toLowerCase();
+      const parsed =
+        v === "true" || v === "1" || v === "yes"
+          ? true
+          : v === "false" || v === "0" || v === "no"
+            ? false
+            : undefined;
+      if (parsed === undefined) {
+        process.stderr.write(
+          `claudeline config: invalid boolean "${value}". Use true/false (or 1/0, yes/no).\n`,
+        );
+        return 2;
+      }
+      config.preferApi = parsed;
+    } else if (key === "cache-ttl-sec") {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 1 || n > 300) {
+        process.stderr.write(
+          `claudeline config: invalid cache-ttl-sec "${value}". Range: 1-300 (seconds).\n`,
+        );
+        return 2;
+      }
+      config.cacheTtlSec = n;
+    }
+    writeConfig(paths, config);
+    process.stdout.write(`Set ${key} = ${value} in ${paths.file}\n`);
+    if (key === "prefer-api" && process.env["CLAUDELINE_PREFER_API"]) {
+      process.stdout.write(
+        `Note: CLAUDELINE_PREFER_API is also set in env (= ${process.env["CLAUDELINE_PREFER_API"]}); env wins.\n`,
+      );
+    }
+    return 0;
+  }
+
+  if (sub === "unset" || sub === "remove" || sub === "rm") {
+    const key = args[1] as ConfigKey | undefined;
+    if (!key) {
+      process.stderr.write(
+        "claudeline config unset <key>\nKeys: prefer-api | cache-ttl-sec\n",
+      );
+      return 2;
+    }
+    const config = readConfig(paths);
+    if (key === "prefer-api") delete config.preferApi;
+    else if (key === "cache-ttl-sec") delete config.cacheTtlSec;
+    else {
+      process.stderr.write(
+        `claudeline config: unknown key "${key}". Known: ${CONFIG_KEYS.join(", ")}\n`,
+      );
+      return 2;
+    }
+    if (Object.keys(config).length === 0) {
+      // No settings left — remove the file rather than leaving an empty
+      // shell. `claudeline config get` will then show "config exists: no".
+      deleteConfig(paths);
+      process.stdout.write(
+        `Removed ${key} (config file deleted: no settings remained).\n`,
+      );
+    } else {
+      writeConfig(paths, config);
+      process.stdout.write(`Removed ${key} from ${paths.file}\n`);
+    }
+    return 0;
+  }
+
+  if (sub === "edit") {
+    ensureConfigFile(paths);
+    const editor = process.env["EDITOR"] ?? "vi";
+    return new Promise<number>((resolve) => {
+      const child = spawn(editor, [paths.file], { stdio: "inherit" });
+      child.on("exit", (code) => resolve(code ?? 0));
+      child.on("error", () => {
+        process.stderr.write(
+          `claudeline config edit: failed to launch "${editor}". Set $EDITOR or edit ${paths.file} manually.\n`,
+        );
+        resolve(1);
+      });
+    });
+  }
+
+  process.stderr.write(
+    `claudeline config: unknown subcommand "${sub}". Use get | set | unset | edit.\n`,
+  );
+  return 2;
+}
+
+function envOrUnset(v: string | undefined): string {
+  if (v === undefined) return "(unset)";
+  if (v === "") return "(empty)";
+  return `"${v}"`;
 }
 
 // Internal `_refresh` for SWR background spawns. Same logic as the

@@ -261,7 +261,7 @@ it does a synchronous OAuth fetch and updates the cache immediately.
 `claudeline doctor` shows the current cache age and configured TTL so
 you can debug "claudeline says X, claude.ai says Y" mismatches.
 
-**Important caveat — stdin priority and the `--prefer-api` escape hatch:**
+**Important caveat — stdin priority and the "fresh mode" escape hatch:**
 recent Claude Code versions pass `rate_limits` directly in stdin on every
 render. By default claudeline uses that source (it's whatever the active
 session itself sees) and **bypasses the cache entirely** for the 5-hour /
@@ -272,14 +272,25 @@ overriding it with stdin data on the next render.
 If you want `claudeline refresh` to actually drive what's shown:
 
 ```bash
-export CLAUDELINE_PREFER_API=1
-# reload Claude Code so it spawns claudeline with the new env
+claudeline config set prefer-api true
 ```
 
-This forces every render to use the OAuth-API cache. The trade-off is one
-extra API call when the cache expires (every 30 s by default), and you
-lose the "always as fresh as my session knows" property of stdin priority.
-`claudeline doctor` shows which source is in effect under Diagnostics.
+This persists in `~/.claudeline/config.json` so you don't have to bet
+on env-var propagation through your shell rc and Claude Code's
+subprocess. The env var (`CLAUDELINE_PREFER_API=1`) still works as a
+runtime override, with this precedence:
+
+```
+env > ~/.claudeline/config.json > default (false)
+```
+
+The trade-off is one extra OAuth-API call when the cache expires (every
+30 s by default; tune via `claudeline config set cache-ttl-sec 15`). You
+also lose the "always as fresh as my session knows" property of stdin
+priority. Run `claudeline doctor` or `claudeline config get` to see
+which source is in effect, plus the verbatim env values claudeline
+actually sees — useful when "I exported X but it doesn't seem to be
+taking" turns out to be a propagation surprise.
 
 ### `claudeline doctor`
 
