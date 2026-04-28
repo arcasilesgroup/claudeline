@@ -26,7 +26,7 @@ Usage:
   claudeline render                Read JSON from stdin and emit the statusline
   claudeline install               Wire claudeline as the statusLine in ~/.claude/settings.json
   claudeline uninstall             Remove claudeline from ~/.claude/settings.json
-  claudeline doctor                Run diagnostics and print a pass/fail report
+  claudeline doctor                Run diagnostics and print a pass/warn/fail report
   claudeline --help                Show this help
   claudeline --version             Show version
 

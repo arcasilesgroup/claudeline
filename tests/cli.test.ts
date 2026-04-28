@@ -211,8 +211,8 @@ describe("cli", () => {
 });
 
 describe("adoptCachedUsage (cache-shape migration)", () => {
-  // Lazy import so the cli module only loads when this describe runs;
-  // keeps the spawn-based tests above isolated.
+  // Lazy import keeps the spawn-based cli tests above isolated from
+  // any side-effects of loading `cache.js`.
   test("rejects pre-0.2 UsageApiResponse-shaped cache (no .data wrapper)", async () => {
     const { adoptCachedUsage } = await import("../src/cache.js");
     const stale = {

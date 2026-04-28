@@ -1,6 +1,6 @@
 {
   "name": "@arcasilesgroup/claudeline",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Cross-platform statusline for Claude Code — model, context, rate limits, effort, thinking",
   "license": "MIT",
   "author": "Arcasiles Group",

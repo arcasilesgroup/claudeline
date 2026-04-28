@@ -223,7 +223,7 @@ informational only, never modifies anything.
     ├ This overrides settings.json effortLevel and blocks /model.
     └ Unset it or comment out the export in your shell rc to use /model freely.
 
-  Summary: 0 errors, 1 warning, 5 ok
+  Summary: 0 errors, 1 warning, 6 ok
 ```
 
 Warnings and errors are surfaced in their own block beneath the report

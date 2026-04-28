@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-04-28
+
+Follow-ups from a second multi-agent review of the 0.3.x bundle. No
+runtime behaviour change beyond the README sample and `--help` text:
+test coverage for the new doctor format, a half-asserted fixture
+matrix tightened up, and assorted doc/comment drift swept.
+
+### Fixed
+
+- **Docs:** README sample summary said `5 ok`; the same scenario
+  actually emits `6 ok` (Configuration: 4, Health: 2). Anyone copying
+  the example and running `claudeline doctor` would have seen a
+  different count and second-guessed their environment.
+- **Help text:** `claudeline --help` previously described `doctor` as
+  a `pass/fail` report; aligned with the README's `pass/warn/fail`
+  framing now that warnings have their own bubble-out block.
+
+### Tests
+
+- New coverage for the doctor format introduced in 0.3.1: top rule
+  (`─` × 72), `Platform: <os>-<arch>` and `Cache directory: <path>`
+  diagnostic lines, singular `1 error` summary branch, empty-section
+  header skip when every leaf bubbles out as an issue, and issues
+  block traversal order across sections.
+- Fixture diversity matrix now asserts both `large=true` and
+  `large=false` (previously the positive side was missing, so
+  deleting all `exceeds_200k_tokens: true` fixtures would have
+  passed silently). Diversity flags are now derived from
+  schema-parsed payloads rather than raw JSON, so a malformed
+  fixture surfaces as a parse error instead of "no smallCost".
+- `tests/doctor.test.ts` now imports `stripAnsi` from
+  `tests/_mockDeps.ts` instead of inlining its own copy.
+
+### Internal
+
+- `docs/remotion/src/Cli.tsx`: dropped the dead `color` prop on
+  `Line` (no caller passed it), folded `Branch`'s two same-style
+  spans into one, and corrected the stale `Total: 360 frames`
+  comment (the actual hold is ~258 frames per `Root.tsx`). Hardcoded
+  version label bumped to 0.3.3 with a note to keep in sync per
+  release.
+- Stale comment in `tests/cli.test.ts` describing the lazy import as
+  "loading the cli module" updated — the imports moved to
+  `cache.js` in 0.3.1.
+
+### Tests
+
+- 302 → 304 (two new `doctor.test.ts` cases for empty-section skip
+  and issues-block order; new assertions inside existing tests for
+  the top rule, Platform/Cache directory lines, singular `1 error`,
+  and the positive side of the fixture diversity matrix).
+
 ## [0.3.2] - 2026-04-27
 
 Polish bundle. No runtime behaviour change — five follow-ups from

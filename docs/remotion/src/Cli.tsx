@@ -49,13 +49,11 @@ interface LineProps {
   startFrame: number;
   children: React.ReactNode;
   bold?: boolean;
-  color?: string;
 }
 const Line: React.FC<LineProps> = ({
   startFrame,
   children,
   bold = false,
-  color = COLORS.white,
 }) => {
   const frame = useCurrentFrame();
   const style = appearAt(frame, startFrame);
@@ -63,7 +61,7 @@ const Line: React.FC<LineProps> = ({
     <div
       style={{
         ...style,
-        color,
+        color: COLORS.white,
         fontWeight: bold ? 700 : 400,
         whiteSpace: "pre",
         lineHeight: 1.55,
@@ -75,10 +73,7 @@ const Line: React.FC<LineProps> = ({
 };
 
 const Branch: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <>
-    <span style={{ color: COLORS.dim }}>{"  "}</span>
-    <span style={{ color: COLORS.dim }}>{children}</span>
-  </>
+  <span style={{ color: COLORS.dim }}>{"  "}{children}</span>
 );
 
 // Rules: a 72-char ─ rule, exactly like the live `printReport` output.
@@ -101,7 +96,8 @@ const Rule: React.FC<{ startFrame: number }> = ({ startFrame }) => {
 
 export const Cli: React.FC = () => {
   // Stagger plan (30 fps). One line every 6 frames after the prompt.
-  // Total: 360 frames = 12 s, with a 60-frame hold at the end.
+  // Summary lands around frame 152 (~5 s); composition runs 410 frames
+  // total (see Root.tsx), so ~8.6 s of hold give the viewer time to read.
   let f = 0;
   const next = (gap = 6) => {
     f += gap;
@@ -183,7 +179,8 @@ export const Cli: React.FC = () => {
         </Line>
         <Line startFrame={diagLine1At}>
           <Branch>{"├"}</Branch>
-          <span> Version: claudeline 0.3.1</span>
+          {/* Keep in sync with package.json on each release. */}
+          <span> Version: claudeline 0.3.3</span>
         </Line>
         <Line startFrame={diagLine2At}>
           <Branch>{"├"}</Branch>

@@ -15,6 +15,7 @@ import {
   printReport,
   runDoctor,
 } from "../src/doctor.js";
+import { stripAnsi } from "./_mockDeps.js";
 
 // Paths in the happy env are composed with `join` so the tests pass
 // on Windows (where `join("/tmp", "claudeline-501")` is `\tmp\claudeline-501`).
@@ -24,8 +25,6 @@ import {
 const HAPPY_CACHE_DIR = join("/tmp", "claudeline-501");
 const HAPPY_CACHE_FILE = join(HAPPY_CACHE_DIR, "usage-cache.json");
 const HAPPY_STATE_FILE = join(HAPPY_CACHE_DIR, "state.json");
-
-const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 // Build a "happy-path" env where every check passes. Individual tests
 // override only the field(s) they care about. This keeps each test
@@ -384,8 +383,12 @@ describe("printReport", () => {
     // Tree-style continuation chars frame each section.
     expect(printed).toContain("├");
     expect(printed).toContain("└");
+    // 72-char top rule opens the report (matches `claude doctor`).
+    expect(printed).toContain("─".repeat(72));
     // Per-check facts still reach the user.
     expect(printed).toContain("Version: claudeline");
+    expect(printed).toContain("Platform: darwin-arm64");
+    expect(printed).toContain(`Cache directory: ${HAPPY_CACHE_DIR}`);
     expect(printed).toContain("statusLine wired");
     expect(printed).toContain("Summary:");
     expect(printed).toContain("0 warnings");
@@ -444,5 +447,53 @@ describe("printReport", () => {
     );
     expect(oneWarn).toContain("1 warning");
     expect(oneWarn).not.toContain("1 warnings");
+
+    // Exactly one error. effortLevel "ultra" is unknown -> error;
+    // statusLine still wired so no other error fires.
+    const oneError = stripAnsi(
+      printReport(
+        runDoctor(
+          happyEnv({
+            readSettings: () => ({
+              statusLine: { type: "command", command: "claudeline render" },
+              effortLevel: "ultra",
+            }),
+          }),
+        ),
+        { color: false },
+      ),
+    );
+    expect(oneError).toContain("1 error,");
+    expect(oneError).not.toContain("1 errors,");
+  });
+
+  test("section header is skipped when all its lines bubble out as issues", () => {
+    // Health has only two checks. Force both to warn so the section
+    // has zero ok/info leaves; the header should disappear from the
+    // tree and the warnings should still appear in the issues block.
+    const env = happyEnv({
+      cacheLoadRaw: () => undefined,         // -> warn (unreadable)
+      stateLoad: () => ({}),                  // -> warn (empty)
+    });
+    const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
+    expect(printed).not.toContain("Health");
+    expect(printed).toContain("unreadable");
+    expect(printed).toContain("State file exists but parses to empty");
+  });
+
+  test("issues block lists issues in section traversal order", () => {
+    // Configuration warn (env override) + Health warn (state empty).
+    // Issues bubble out below the report; the section that owns each
+    // issue traverses Configuration before Health.
+    const env = happyEnv({
+      envVars: { CLAUDE_CODE_EFFORT_LEVEL: "max" },
+      stateLoad: () => ({}),
+    });
+    const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
+    const cfgIdx = printed.indexOf("CLAUDE_CODE_EFFORT_LEVEL=max");
+    const healthIdx = printed.indexOf("State file exists but parses to empty");
+    expect(cfgIdx).toBeGreaterThan(-1);
+    expect(healthIdx).toBeGreaterThan(-1);
+    expect(cfgIdx).toBeLessThan(healthIdx);
   });
 });

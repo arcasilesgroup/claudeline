@@ -33,14 +33,20 @@ describe("real Claude Code stdin fixtures", () => {
   test("fixtures cover the matrix of optional flags", () => {
     // The suite is only useful if the fixtures actually differ. If they
     // all carry the same flags, three fixtures buy us nothing over one.
-    const flags = fixtures.map(({ payload }) => ({
-      fast: payload.fast_mode === true,
-      large: payload.exceeds_200k_tokens === true,
-      smallCost:
-        typeof payload.cost?.total_cost_usd === "number" &&
-        payload.cost.total_cost_usd < 1,
-    }));
+    // Parse first so a malformed fixture surfaces here, not silently as
+    // "no smallCost" because cost.total_cost_usd became a string.
+    const flags = fixtures.map(({ payload }) => {
+      const parsed = z.parse(statuslineInputSchema, payload);
+      return {
+        fast: parsed.fast_mode === true,
+        large: parsed.exceeds_200k_tokens === true,
+        smallCost:
+          typeof parsed.cost?.total_cost_usd === "number" &&
+          parsed.cost.total_cost_usd < 1,
+      };
+    });
     expect(flags.some((f) => f.fast)).toBe(true);
+    expect(flags.some((f) => f.large)).toBe(true);
     expect(flags.some((f) => !f.large)).toBe(true);
     expect(flags.some((f) => f.smallCost)).toBe(true);
   });
