@@ -61,6 +61,14 @@ If you want the leanest, no-runtime-deps option and you're macOS/Linux-only, the
 
 ## Install
 
+### One-line installer (macOS, Linux — no Node required)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arcasilesgroup/claudeline/main/scripts/install.sh | bash
+```
+
+Detects your platform, downloads the right Bun-compiled binary from the latest GitHub release, verifies the SHA256, drops it in `~/.local/bin/`, and runs `claudeline install` to wire it into Claude Code. Re-run any time to upgrade. The script is short and unobfuscated — read it before piping if you're cautious: [`scripts/install.sh`](./scripts/install.sh).
+
 ### npm (any platform with Node ≥ 18)
 
 ```bash
@@ -76,7 +84,7 @@ brew tap arcasilesgroup/claudeline
 brew install claudeline
 ```
 
-### Self-contained binary
+### Self-contained binary (manual)
 
 Download the right asset from the [releases page](https://github.com/arcasilesgroup/claudeline/releases/latest), make it executable, drop it on your PATH:
 
@@ -186,13 +194,51 @@ than `api.anthropic.com`.
 ## CLI usage
 
 ```text
-claudeline render        Read JSON from stdin and emit the statusline
-claudeline install       Wire claudeline as the statusLine in ~/.claude/settings.json
-claudeline uninstall     Remove claudeline from ~/.claude/settings.json
-claudeline doctor        Run diagnostics and print a pass/warn/fail report
-claudeline --help        Show this help
-claudeline --version     Show version
+claudeline render                Read JSON from stdin and emit the statusline
+claudeline render --json         Same input, structured JSON output (for editors/scripts)
+claudeline install               Wire claudeline as the statusLine in ~/.claude/settings.json
+claudeline uninstall             Remove claudeline from ~/.claude/settings.json
+claudeline doctor                Run diagnostics and print a pass/warn/fail report
+claudeline doctor --json         Same checks, structured JSON output (for scripts/editors)
+claudeline summary               Show local session history (cost, models, top windows)
+claudeline summary --enable      Start tracking sessions in ~/.claudeline/sessions.jsonl
+claudeline summary --disable     Stop tracking and delete the local session log
+claudeline --help                Show this help
+claudeline --version             Show version
 ```
+
+### `claudeline summary` (opt-in local cost tracking)
+
+Run `claudeline summary --enable` once to start logging one record per render to
+`~/.claudeline/sessions.jsonl`. The reader dedups by session id (last value
+wins), so the cost shown for each session is the final server-reported total.
+All data stays on this machine — no network egress, no telemetry.
+
+```text
+  claudeline summary
+  log: /Users/me/.claudeline/sessions.jsonl
+
+  Today       $7.65 across 2 sessions
+              · Claude Opus 4.6              $5.50 (1 session)
+              · Claude Sonnet 4.6            $2.15 (1 session)
+
+  This week   $42.10 across 14 sessions
+              · Claude Sonnet 4.6           $28.40 (10 sessions)
+              · Claude Opus 4.6             $13.70 (4 sessions)
+
+  This month  …
+  All time    …
+```
+
+Stop tracking and delete the log: `claudeline summary --disable`. JSON output for
+dashboards: `claudeline summary --json`.
+
+### `claudeline render --json` and `claudeline doctor --json`
+
+Both subcommands accept `--json` for editor / dashboard integrations. The render
+output is the structured data behind the ANSI line (model, cost, context,
+session, rate limits, latency); the doctor output is the same checks the human
+report covers, in a stable schema you can parse without ANSI.
 
 ### `claudeline doctor`
 

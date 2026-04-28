@@ -1,49 +1,15 @@
 import React from "react";
-import { AbsoluteFill, interpolate, useCurrentFrame, Easing } from "remotion";
+import { AbsoluteFill, useCurrentFrame } from "remotion";
+import { appearAt, BASE_COLORS, FONT } from "./_helpers.js";
 
-// Visual constants — same palette the Statusline composition uses, so
-// both demo gifs feel cohesive.
+// CLI demo wants its own `dim` and `rule` shades — the doctor reveal is
+// busier than the statusline ribbon, so a slightly higher-contrast `dim`
+// reads better against the panel background.
 const COLORS = {
-  bg: "#0d1117",
-  outer: "#08090c",
-  panelBorder: "#1f2937",
-  cyan: "rgb(86, 182, 194)",
-  green: "rgb(0, 175, 80)",
-  yellow: "rgb(230, 200, 0)",
-  red: "rgb(255, 85, 85)",
-  white: "rgb(220, 220, 220)",
+  ...BASE_COLORS,
   dim: "rgba(220, 220, 220, 0.55)",
   rule: "rgba(220, 220, 220, 0.25)",
 };
-
-const FONT =
-  "'JetBrains Mono', 'Cascadia Code', 'Menlo', 'Monaco', 'Courier New', monospace";
-
-// Stagger-fade helper. A line appears at `startFrame` and fully resolves
-// over `duration` frames. We translateY a few px for a gentle "settling".
-function appearAt(frame: number, startFrame: number, duration = 8) {
-  const opacity = interpolate(
-    frame,
-    [startFrame, startFrame + duration],
-    [0, 1],
-    {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-      easing: Easing.out(Easing.ease),
-    },
-  );
-  const translate = interpolate(
-    frame,
-    [startFrame, startFrame + duration],
-    [4, 0],
-    {
-      extrapolateLeft: "clamp",
-      extrapolateRight: "clamp",
-      easing: Easing.out(Easing.ease),
-    },
-  );
-  return { opacity, transform: `translateY(${translate}px)` };
-}
 
 interface LineProps {
   startFrame: number;
@@ -75,6 +41,43 @@ const Line: React.FC<LineProps> = ({
 const Branch: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <span style={{ color: COLORS.dim }}>{"  "}{children}</span>
 );
+
+// A Diagnostics / Configuration / Health block: bold header, then N
+// branch leaves on the same gap, then a blank for vertical breathing
+// room. The glyph for each leaf is `├` until the last, which gets `└`.
+// `text` is React.ReactNode so callers can drop in nested spans for the
+// colored cache-directory path.
+interface SectionProps {
+  title: string;
+  startFrame: number;
+  gap?: number;
+  lines: React.ReactNode[];
+}
+const Section: React.FC<SectionProps> = ({
+  title,
+  startFrame,
+  gap = 6,
+  lines,
+}) => {
+  const blankAt = startFrame + (lines.length + 1) * gap;
+  return (
+    <>
+      <Line startFrame={startFrame} bold>
+        {`  ${title}`}
+      </Line>
+      {lines.map((text, i) => {
+        const last = i === lines.length - 1;
+        return (
+          <Line key={i} startFrame={startFrame + (i + 1) * gap}>
+            <Branch>{last ? "└" : "├"}</Branch>
+            <span> {text}</span>
+          </Line>
+        );
+      })}
+      <Line startFrame={blankAt}>{" "}</Line>
+    </>
+  );
+};
 
 // Rules: a 72-char ─ rule, exactly like the live `printReport` output.
 const Rule: React.FC<{ startFrame: number }> = ({ startFrame }) => {
@@ -111,27 +114,15 @@ export const Cli: React.FC = () => {
   const ruleAt = next(36); // longer pause before the report begins
   const blank1At = next();
 
-  // Diagnostics section
+  // Each section reserves (lines.length + 1) gaps of 6 frames: one for
+  // the header + one per leaf. The +1 trailing gap is the blank that
+  // `<Section>` renders for vertical breathing room.
   const diagHeaderAt = next();
-  const diagLine1At = next();
-  const diagLine2At = next();
-  const diagLine3At = next();
-  const diagLine4At = next();
-  const blank2At = next();
-
-  // Configuration section
+  f += 4 * 6 + 6; // 4 leaves + blank
   const confHeaderAt = next();
-  const confLine1At = next();
-  const confLine2At = next();
-  const confLine3At = next();
-  const confLine4At = next();
-  const blank3At = next();
-
-  // Health section
+  f += 4 * 6 + 6;
   const healthHeaderAt = next();
-  const healthLine1At = next();
-  const healthLine2At = next();
-  const blank4At = next();
+  f += 2 * 6 + 6;
 
   // Summary
   const summaryAt = next();
@@ -173,74 +164,45 @@ export const Cli: React.FC = () => {
         <Rule startFrame={ruleAt} />
         <Line startFrame={blank1At}>{" "}</Line>
 
-        {/* Diagnostics */}
-        <Line startFrame={diagHeaderAt} bold>
-          {"  Diagnostics"}
-        </Line>
-        <Line startFrame={diagLine1At}>
-          <Branch>{"├"}</Branch>
-          {/* Keep in sync with package.json on each release. */}
-          <span> Version: claudeline 0.3.3</span>
-        </Line>
-        <Line startFrame={diagLine2At}>
-          <Branch>{"├"}</Branch>
-          <span> Engine: Node 25.9.0</span>
-        </Line>
-        <Line startFrame={diagLine3At}>
-          <Branch>{"├"}</Branch>
-          <span> Platform: darwin-arm64</span>
-        </Line>
-        <Line startFrame={diagLine4At}>
-          <Branch>{"└"}</Branch>
-          <span>
-            {" "}Cache directory:{" "}
-            <span style={{ color: COLORS.dim }}>
-              /var/folders/…/claudeline-501
-            </span>
-          </span>
-        </Line>
-        <Line startFrame={blank2At}>{" "}</Line>
-
-        {/* Configuration */}
-        <Line startFrame={confHeaderAt} bold>
-          {"  Configuration"}
-        </Line>
-        <Line startFrame={confLine1At}>
-          <Branch>{"├"}</Branch>
-          <span> statusLine wired in ~/.claude/settings.json</span>
-        </Line>
-        <Line startFrame={confLine2At}>
-          <Branch>{"├"}</Branch>
-          <span> effortLevel in settings.json: &quot;high&quot;</span>
-        </Line>
-        <Line startFrame={confLine3At}>
-          <Branch>{"├"}</Branch>
-          <span> Cache directory exists with 0o700 permissions</span>
-        </Line>
-        <Line startFrame={confLine4At}>
-          <Branch>{"└"}</Branch>
-          <span> Stdin schema parses a synthetic test payload</span>
-        </Line>
-        <Line startFrame={blank3At}>{" "}</Line>
-
-        {/* Health */}
-        <Line startFrame={healthHeaderAt} bold>
-          {"  Health"}
-        </Line>
-        <Line startFrame={healthLine1At}>
-          <Branch>{"├"}</Branch>
-          <span> Cache entry shape parses cleanly</span>
-        </Line>
-        <Line startFrame={healthLine2At}>
-          <Branch>{"└"}</Branch>
-          <span> State file shape parses cleanly</span>
-        </Line>
-        <Line startFrame={blank4At}>{" "}</Line>
+        <Section
+          title="Diagnostics"
+          startFrame={diagHeaderAt}
+          lines={[
+            // Version label kept in sync with package.json each release.
+            "Version: claudeline 0.3.3",
+            "Engine: Node 25.9.0",
+            "Platform: darwin-arm64",
+            <>
+              Cache directory:{" "}
+              <span style={{ color: COLORS.dim }}>
+                /var/folders/…/claudeline-501
+              </span>
+            </>,
+          ]}
+        />
+        <Section
+          title="Configuration"
+          startFrame={confHeaderAt}
+          lines={[
+            "statusLine wired in ~/.claude/settings.json",
+            "effortLevel in settings.json: \"high\"",
+            "Cache directory exists with 0o700 permissions",
+            "Stdin schema parses a synthetic test payload",
+          ]}
+        />
+        <Section
+          title="Health"
+          startFrame={healthHeaderAt}
+          lines={[
+            "Cache entry shape parses cleanly",
+            "State file shape parses cleanly",
+          ]}
+        />
 
         {/* Summary — bold "Summary:" label */}
         <Line startFrame={summaryAt}>
           <span style={{ fontWeight: 700 }}>{"  Summary:"}</span>
-          <span> 0 errors, 0 warnings, 7 ok</span>
+          <span> 0 errors, 0 warnings, 6 ok</span>
         </Line>
       </div>
     </AbsoluteFill>

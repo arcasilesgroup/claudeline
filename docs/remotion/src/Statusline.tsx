@@ -1,50 +1,26 @@
 import React from "react";
-import { AbsoluteFill, interpolate, useCurrentFrame, Easing } from "remotion";
+import { AbsoluteFill, Easing, interpolate, useCurrentFrame } from "remotion";
+import {
+  appearAt as appearAtBase,
+  BASE_COLORS,
+  colorForPct,
+  EXTRA_COLORS,
+  FONT,
+} from "./_helpers.js";
 
-// Visual constants — aligned with src/ansi.ts in the main package so the
-// rendered demo looks identical to the real ANSI output.
+// Statusline composition needs the badge palette (blue/orange/magenta)
+// plus a slightly more transparent `dim` than the doctor demo.
 const COLORS = {
-  bg: "#0d1117", // GitHub dark — both outer canvas and inner panel
-  outer: "#08090c", // Slightly darker outer bg so the rounded panel edge reads
-  panelBorder: "#1f2937", // Subtle hairline around the rounded panel
-  blue: "rgb(0, 153, 255)",
-  cyan: "rgb(86, 182, 194)",
-  green: "rgb(0, 175, 80)",
-  orange: "rgb(255, 176, 85)",
-  yellow: "rgb(230, 200, 0)",
-  red: "rgb(255, 85, 85)",
-  magenta: "rgb(180, 140, 255)",
-  white: "rgb(220, 220, 220)",
+  ...BASE_COLORS,
+  ...EXTRA_COLORS,
   dim: "rgba(220, 220, 220, 0.4)",
 };
 
-const FONT =
-  "'JetBrains Mono', 'Cascadia Code', 'Menlo', 'Monaco', 'Courier New', monospace";
-
-// Color thresholds match ansi.ts:colorForPercentage.
-function colorForPct(pct: number): string {
-  if (pct >= 90) return COLORS.red;
-  if (pct >= 70) return COLORS.yellow;
-  if (pct >= 50) return COLORS.orange;
-  return COLORS.green;
-}
-
-// Smooth fade/slide-in helper. Returns { opacity, transform } given the
-// frame at which the element should fully appear.
+// The ribbon is a stable display element; a 12-frame settle reads more
+// natural than the 8-frame default the CLI demo uses for its line-by-line
+// reveal. Wrap the shared helper to lock in our duration.
 function appearAt(frame: number, startFrame: number, duration = 12) {
-  const opacity = interpolate(
-    frame,
-    [startFrame, startFrame + duration],
-    [0, 1],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.ease) },
-  );
-  const translate = interpolate(
-    frame,
-    [startFrame, startFrame + duration],
-    [6, 0],
-    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.ease) },
-  );
-  return { opacity, transform: `translateY(${translate}px)` };
+  return appearAtBase(frame, startFrame, duration);
 }
 
 const Separator: React.FC<{ visible?: boolean }> = ({ visible = true }) => (

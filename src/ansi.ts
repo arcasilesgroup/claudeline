@@ -20,8 +20,11 @@ export const palette = {
   white: color(220, 220, 220),
 } as const;
 
-export function paint(text: string, ansi: string): string {
-  return `${ansi}${text}${RESET}`;
+// `enabled` lets callers gate color centrally (NO_COLOR / TERM=dumb /
+// non-TTY pipes). Default true preserves the previous behaviour for
+// callers like `segments.ts` that always want color when invoked.
+export function paint(text: string, ansi: string, enabled = true): string {
+  return enabled ? `${ansi}${text}${RESET}` : text;
 }
 
 export function colorForPercentage(pct: number): string {

@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-28
+
+Adoption-driven feature bundle. All additive — no breaking changes to
+shipped 0.3.x CLI surface.
+
+### Added
+
+- **`claudeline summary`** — opt-in local cost / session history. Run
+  `claudeline summary --enable` to start logging one record per render
+  to `~/.claudeline/sessions.jsonl`. The summary command rolls totals
+  across today / this-week / this-month / all-time windows, broken out
+  by model. All data stays on the user's machine; `--disable` deletes
+  the log. JSON output via `--json` for dashboards.
+- **`claudeline render --json`** — emits the structured data behind the
+  ANSI statusline (model, cost with source attribution, context window,
+  session, rate limits with projection, latency p50/p99). Stable schema;
+  intended for editor / dashboard integrations that don't want to parse
+  ANSI.
+- **`claudeline doctor --json`** — same checks the human report runs,
+  emitted as a structured payload (sections + lines + summary) so
+  scripts and CI can parse the diagnosis without ANSI.
+- **One-line installer** (`scripts/install.sh`) — detects platform,
+  downloads the right Bun-compiled binary from the latest GitHub
+  release, verifies SHA256, drops it in `~/.local/bin/`, runs
+  `claudeline install`. Documented in the README under "Install" as the
+  primary path for users without Node installed globally.
+- **Marketing playbook** (`docs/MARKETING.md`) — internal doc tracking
+  community-list submissions, launch posts, and one-line pitches we
+  can re-use across channels. Not published to npm.
+
+### Changed
+
+- **`DoctorReport.lines` removed** — flattened view is now derived via
+  the new exported `flattenLines(report)` helper. Internally `runDoctor`
+  no longer carries the redundant field; the summary computes off
+  `sections.flatMap(...)`. Tests that previously read `report.lines`
+  now use `flattenLines(report)`. Schema-level: this is a breaking
+  type-only change for any downstream consumer that imported
+  `DoctorReport`, but the package has no library `exports` map so no
+  realistic external consumer exists.
+- **`paint(text, ansi)` → `paint(text, ansi, enabled = true)`** — the
+  helper now takes an optional flag so doctor's NO_COLOR-aware code can
+  call `paint(body, ansi, color)` instead of inlining its own
+  conditional wrapper. Backward-compatible default (`enabled = true`)
+  preserves the previous behaviour for `segments.ts` and other
+  unconditional callers.
+- **Remotion compositions** (`docs/remotion/src/`) — extracted shared
+  `BASE_COLORS`, `EXTRA_COLORS`, `FONT`, `appearAt`, `colorForPct` to a
+  new `_helpers.ts`. `Cli.tsx` and `Statusline.tsx` previously inlined
+  near-duplicate copies; one source of truth keeps both demos in sync
+  when the palette evolves. Cli.tsx also gained a `<Section>` helper
+  that collapses the three Diagnostics / Configuration / Health blocks
+  into data-driven calls.
+
+### Internal
+
+- `tests/_mockDeps.ts`: clarifying comment on the `now` choice
+  (2026-04-26T20:00:00Z). Investigated the question raised in the
+  0.3.3 review — the unification across `render.test.ts` and
+  `fixtures.test.ts` is intentional; chosen so fixture `resets_at`
+  values sit in the future and the renderer exercises the
+  "still counting down" branch.
+- New `src/sessionLog.ts` (~200 LOC, pure functions + a couple of
+  filesystem helpers). Logging is opt-in via the file's existence;
+  reader dedups by session_id with last-write-wins semantics.
+
+### Tests
+
+- 304 → 320 (+16). Most additions in `tests/sessionLog.test.ts`
+  (lifecycle, dedup, malformed-line tolerance, summarize windows + by-
+  model breakdown) and `tests/render.test.ts` (renderStatuslineData
+  shape, server-vs-estimated cost source, rate-limits passthrough,
+  null-out semantics for absent fields). `tests/cli.test.ts` covers
+  `doctor --json` end-to-end against the bundled binary.
+
 ## [0.3.3] - 2026-04-28
 
 Follow-ups from a second multi-agent review of the 0.3.x bundle. No

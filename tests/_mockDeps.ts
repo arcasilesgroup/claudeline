@@ -14,6 +14,13 @@ export function mockDeps(overrides: Partial<RenderDeps> = {}): RenderDeps {
     getGitInfo: () => ({ branch: undefined, dirty: false, worktree: false }),
     detect24Hour: true,
     timeZone: "Europe/Madrid",
+    // Fixed clock: 2026-04-26T20:00:00Z (= 1777233600000 ms).
+    // Chosen so the two real-world fixture `resets_at` values
+    // (1777296000, 1777300000) sit ~17h in the future — the renderer
+    // exercises the "still counting down" branch rather than the
+    // "just reset" branch. If a future fixture-driven test wants
+    // post-reset behaviour, override `now` per call site instead of
+    // changing this default.
     now: () => new Date("2026-04-26T20:00:00Z").getTime(),
     skipPermissions: false,
     glyphs: glyphsFor("emoji"),

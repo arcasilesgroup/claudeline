@@ -208,6 +208,63 @@ describe("cli", () => {
     });
     expect(r.status).toBe(0);
   });
+
+  test("doctor --json emits structured output", () => {
+    const r = run(["doctor", "--json"]);
+    expect(r.status).toBe(0);
+    // Stable schema: editors / dashboards parse this output. Don't break
+    // the contract without a major version bump.
+    const parsed = JSON.parse(r.stdout) as {
+      version: string;
+      generated_at: string;
+      sections: Array<{
+        title: string;
+        lines: Array<{ status: string; message: string; fix?: string }>;
+      }>;
+      summary: { ok: number; warnings: number; errors: number };
+    };
+    expect(parsed.version).toBe(pkg.version);
+    expect(typeof parsed.generated_at).toBe("string");
+    // ISO 8601 sanity check.
+    expect(parsed.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(parsed.sections.map((s) => s.title)).toEqual([
+      "Diagnostics",
+      "Configuration",
+      "Health",
+    ]);
+    // Every line has the canonical status set.
+    for (const s of parsed.sections) {
+      for (const l of s.lines) {
+        expect(["ok", "info", "warn", "error"]).toContain(l.status);
+        expect(typeof l.message).toBe("string");
+      }
+    }
+    expect(typeof parsed.summary.ok).toBe("number");
+    expect(typeof parsed.summary.warnings).toBe("number");
+    expect(typeof parsed.summary.errors).toBe("number");
+    // No ANSI in JSON output.
+    expect(r.stdout).not.toMatch(/\x1b\[/);
+  });
+
+  test("doctor --json includes fix strings on warn/error lines", () => {
+    const r = spawnSync("node", [dist, "doctor", "--json"], {
+      encoding: "utf-8",
+      env: { ...process.env, CLAUDE_CODE_EFFORT_LEVEL: "max" },
+    });
+    expect(r.status).toBe(0);
+    const parsed = JSON.parse(r.stdout) as {
+      sections: Array<{
+        lines: Array<{ status: string; message: string; fix?: string }>;
+      }>;
+    };
+    const lines = parsed.sections.flatMap((s) => s.lines);
+    const envWarn = lines.find((l) =>
+      l.message.includes("CLAUDE_CODE_EFFORT_LEVEL=max"),
+    );
+    expect(envWarn).toBeDefined();
+    expect(envWarn?.status).toBe("warn");
+    expect(envWarn?.fix).toContain("/model");
+  });
 });
 
 describe("adoptCachedUsage (cache-shape migration)", () => {

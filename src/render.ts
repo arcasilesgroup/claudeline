@@ -60,6 +60,201 @@ const BAR_WIDTH = 10;
 // renders 0% regardless, so an off-by-default isn't catastrophic.
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 
+// Structured view of the same data that renderStatusline turns into an
+// ANSI line. Exposed via `claudeline render --json` so editors and other
+// consumers can render their own UI without parsing ANSI.
+//
+// Schema is part of the public surface. Adding fields is non-breaking;
+// removing or renaming requires a major version bump.
+export interface StatuslineData {
+  version: string;
+  generated_at: string;
+  model: { id: string | null; display_name: string | null };
+  context: {
+    used_percentage: number | null;
+    window_size: number;
+    tokens: {
+      input: number;
+      cache_creation: number;
+      cache_read: number;
+      output: number;
+    };
+  };
+  cost: {
+    total_usd: number | null;
+    // "server" when Claude Code provided cost.total_cost_usd directly;
+    // "estimated" when we computed it from token counts × pricing.
+    // null when neither path produced a value.
+    source: "server" | "estimated" | null;
+  };
+  session: {
+    id: string | null;
+    started_at: string | null;
+    elapsed_seconds: number | null;
+  };
+  effort: { level: string | null };
+  thinking: { enabled: boolean };
+  flags: {
+    fast_mode: boolean;
+    exceeds_200k_tokens: boolean;
+    skip_permissions: boolean;
+  };
+  directory: {
+    cwd: string | null;
+    git: {
+      branch: string | null;
+      dirty: boolean;
+      worktree: boolean;
+    };
+  };
+  rate_limits: {
+    five_hour: {
+      pct: number;
+      resets_at_epoch: number | null;
+      projection_minutes: number | null;
+    } | null;
+    seven_day: { pct: number; resets_at_epoch: number | null } | null;
+    extra: {
+      enabled: boolean;
+      pct: number;
+      used_cents: number;
+      limit_cents: number;
+      reset_label: string;
+    } | null;
+  };
+  latency: {
+    last_ms: number | null;
+    p50_ms: number | null;
+    p99_ms: number | null;
+  };
+}
+
+export async function renderStatuslineData(
+  input: StatuslineInput,
+  deps: RenderDeps,
+  meta: { version: string },
+): Promise<StatuslineData> {
+  const cwd = pickCwd(input);
+  const gitInfo = cwd
+    ? deps.getGitInfo(cwd)
+    : { branch: undefined, dirty: false, worktree: false };
+  const sessionElapsed = computeSessionElapsed(input, deps.now);
+  const settings = deps.readSettings();
+  const effortLevel = input.effort?.level ?? settings.effortLevel ?? null;
+  const thinkingEnabled =
+    input.thinking?.enabled ?? settings.alwaysThinkingEnabled ?? false;
+
+  const usage = input.context_window?.current_usage;
+  const windowSize =
+    input.context_window?.context_window_size ?? DEFAULT_CONTEXT_WINDOW;
+
+  const { rateData, latencyMs, latencySummary } = await gatherRateLimits(
+    input,
+    deps,
+  );
+
+  // Cost source: server beats local estimation. If the input carries a
+  // server-side cost we treat it as authoritative; otherwise we attempt
+  // a best-effort estimate from tokens × pricing for `model.id`.
+  const serverCost = input.cost?.total_cost_usd;
+  let costSource: StatuslineData["cost"]["source"] = null;
+  let costTotal: number | null = null;
+  if (typeof serverCost === "number") {
+    costSource = "server";
+    costTotal = serverCost;
+  } else {
+    const pricing = pricingFor(input.model?.id);
+    if (pricing && usage) {
+      // Same formula the cost segment uses (USD per 1M tokens).
+      const estimated =
+        ((usage.input_tokens ?? 0) / 1_000_000) * pricing.input +
+        ((usage.cache_creation_input_tokens ?? 0) / 1_000_000) *
+          pricing.cacheCreation +
+        ((usage.cache_read_input_tokens ?? 0) / 1_000_000) * pricing.cacheRead +
+        ((usage.output_tokens ?? 0) / 1_000_000) * pricing.output;
+      if (Number.isFinite(estimated) && estimated > 0) {
+        costSource = "estimated";
+        costTotal = Number(estimated.toFixed(4));
+      }
+    }
+  }
+
+  return {
+    version: meta.version,
+    generated_at: new Date(deps.now()).toISOString(),
+    model: {
+      id: input.model?.id ?? null,
+      display_name: input.model?.display_name ?? null,
+    },
+    context: {
+      used_percentage:
+        typeof input.context_window?.used_percentage === "number"
+          ? input.context_window.used_percentage
+          : null,
+      window_size: windowSize,
+      tokens: {
+        input: usage?.input_tokens ?? 0,
+        cache_creation: usage?.cache_creation_input_tokens ?? 0,
+        cache_read: usage?.cache_read_input_tokens ?? 0,
+        output: usage?.output_tokens ?? 0,
+      },
+    },
+    cost: { total_usd: costTotal, source: costSource },
+    session: {
+      id: input.session?.id ?? null,
+      started_at: input.session?.start_time ?? null,
+      elapsed_seconds: sessionElapsed ?? null,
+    },
+    effort: { level: effortLevel ?? null },
+    thinking: { enabled: thinkingEnabled === true },
+    flags: {
+      fast_mode: input.fast_mode === true,
+      exceeds_200k_tokens: input.exceeds_200k_tokens === true,
+      skip_permissions: deps.skipPermissions === true,
+    },
+    directory: {
+      cwd: cwd ?? null,
+      git: {
+        branch: gitInfo.branch ?? null,
+        dirty: gitInfo.dirty,
+        worktree: gitInfo.worktree,
+      },
+    },
+    rate_limits: {
+      five_hour: rateData.fiveHour
+        ? {
+            pct: rateData.fiveHour.pct,
+            resets_at_epoch: rateData.fiveHour.resetEpoch ?? null,
+            projection_minutes:
+              typeof rateData.fiveHour.projectionMinutes === "number"
+                ? rateData.fiveHour.projectionMinutes
+                : null,
+          }
+        : null,
+      seven_day: rateData.sevenDay
+        ? {
+            pct: rateData.sevenDay.pct,
+            resets_at_epoch: rateData.sevenDay.resetEpoch ?? null,
+          }
+        : null,
+      extra: rateData.extra
+        ? {
+            enabled: rateData.extra.enabled,
+            pct: rateData.extra.pct,
+            used_cents: rateData.extra.usedCents,
+            limit_cents: rateData.extra.limitCents,
+            reset_label: rateData.extra.resetLabel,
+          }
+        : null,
+    },
+    latency: {
+      last_ms: latencyMs ?? null,
+      p50_ms: latencySummary?.p50 ?? null,
+      p99_ms: latencySummary?.p99 ?? null,
+    },
+  };
+}
+
 export async function renderStatusline(
   input: StatuslineInput,
   deps: RenderDeps,

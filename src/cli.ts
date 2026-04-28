@@ -10,11 +10,24 @@ import { getGitInfo } from "./git.js";
 import { glyphsFor, parseGlyphMode } from "./glyphs.js";
 import { install, uninstall } from "./installer.js";
 import { detectSkipPermissions, detectTimezone, readMacDefault } from "./platform.js";
-import { type CachedUsage, renderStatusline } from "./render.js";
+import {
+  type CachedUsage,
+  renderStatusline,
+  renderStatuslineData,
+} from "./render.js";
 import {
   type StatuslineInput,
   statuslineInputSchema,
 } from "./schemas.js";
+import {
+  type SessionRecord,
+  appendSessionRecord,
+  defaultSessionLogPaths,
+  disableSessionLog,
+  enableSessionLog,
+  isSessionLogEnabled,
+  summarize,
+} from "./sessionLog.js";
 import { defaultSettingsPath, readSettingsFile } from "./settings.js";
 import { type RateState, loadState, saveState } from "./state.js";
 import { detect24Hour } from "./time.js";
@@ -24,9 +37,14 @@ const HELP = `claudeline ${VERSION} — cross-platform statusline for Claude Cod
 
 Usage:
   claudeline render                Read JSON from stdin and emit the statusline
+  claudeline render --json         Same input, structured JSON output (for editors/scripts)
   claudeline install               Wire claudeline as the statusLine in ~/.claude/settings.json
   claudeline uninstall             Remove claudeline from ~/.claude/settings.json
   claudeline doctor                Run diagnostics and print a pass/warn/fail report
+  claudeline doctor --json         Same checks, structured JSON output (for scripts/editors)
+  claudeline summary               Show local session history (cost, models, top windows)
+  claudeline summary --enable      Start tracking sessions in ~/.claudeline/sessions.jsonl
+  claudeline summary --disable     Stop tracking and delete the local session log
   claudeline --help                Show this help
   claudeline --version             Show version
 
@@ -72,11 +90,17 @@ async function main(): Promise<number> {
   }
 
   if (cmd === "doctor") {
-    return runDoctorCmd();
+    // Pass the raw argv tail so runDoctorCmd can sniff `--json`. We
+    // avoid yargs/commander to keep the dependency surface at zero.
+    return runDoctorCmd(process.argv.slice(3));
+  }
+
+  if (cmd === "summary") {
+    return runSummaryCmd(process.argv.slice(3));
   }
 
   if (cmd === "render" || cmd === undefined) {
-    return await runRender();
+    return await runRender(process.argv.slice(3));
   }
 
   process.stderr.write(`unknown command: ${cmd}\n${HELP}`);
@@ -88,9 +112,34 @@ async function main(): Promise<number> {
 // even when a check warns. We surface failures via stdout, not exit
 // code, so a CI-style `claudeline doctor || exit 1` would need to grep
 // the output (intentional: doctor warnings are not test failures).
-function runDoctorCmd(): number {
+//
+// `--json` swaps the human-readable tree for a structured JSON dump
+// (sections + summary + meta) so editors, dashboards, and scripts can
+// consume the report without parsing ANSI.
+function runDoctorCmd(args: string[]): number {
   const env = buildRealDoctorEnv();
   const report = runDoctor(env);
+
+  if (args.includes("--json")) {
+    // Schema is documented in the README under `claudeline doctor --json`.
+    // Keep this stable across patches — third-party tooling may rely on it.
+    const out = {
+      version: VERSION,
+      generated_at: new Date().toISOString(),
+      sections: report.sections.map((s) => ({
+        title: s.title,
+        lines: s.lines.map((l) => ({
+          status: l.status,
+          message: l.message,
+          ...(l.fix !== undefined ? { fix: l.fix } : {}),
+        })),
+      })),
+      summary: report.summary,
+    };
+    process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+    return 0;
+  }
+
   // Honor NO_COLOR (https://no-color.org) and pipe-to-not-a-tty per
   // clig.dev: "Disable color if stdout is not an interactive terminal."
   const useColor =
@@ -143,9 +192,16 @@ function buildRealDoctorEnv(): DoctorEnv {
   return env;
 }
 
-async function runRender(): Promise<number> {
+async function runRender(args: string[]): Promise<number> {
+  const json = args.includes("--json");
   const raw = await readStdin();
   if (!raw.trim()) {
+    if (json) {
+      // Stable empty-state response so editors can probe with no stdin
+      // and still get a parseable shape.
+      process.stdout.write(`${JSON.stringify({ version: VERSION, error: "no_stdin" })}\n`);
+      return 0;
+    }
     process.stdout.write("Claude\n");
     return 0;
   }
@@ -154,6 +210,10 @@ async function runRender(): Promise<number> {
   try {
     parsed = z.parse(statuslineInputSchema, JSON.parse(raw));
   } catch {
+    if (json) {
+      process.stdout.write(`${JSON.stringify({ version: VERSION, error: "invalid_input" })}\n`);
+      return 0;
+    }
     process.stdout.write("Claude\n");
     return 0;
   }
@@ -178,7 +238,7 @@ async function runRender(): Promise<number> {
 
   const credentialSources = defaultCredentialSources();
 
-  const out = await renderStatusline(parsed, {
+  const deps = {
     readSettings: () => readSettingsFile(),
     getGitInfo,
     detect24Hour: use24h,
@@ -192,10 +252,139 @@ async function runRender(): Promise<number> {
     cacheSave: (data: CachedUsage) => saveJsonCache(cachePath, data),
     loadState: (): RateState => loadState(statePath),
     saveState: (state: RateState) => saveState(statePath, state),
-  });
+  };
 
+  if (json) {
+    const data = await renderStatuslineData(parsed, deps, { version: VERSION });
+    process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+    logSessionIfEnabled(parsed, deps);
+    return 0;
+  }
+
+  const out = await renderStatusline(parsed, deps);
   process.stdout.write(`${out}\n`);
+  logSessionIfEnabled(parsed, deps);
   return 0;
+}
+
+// Persist a session record only when the user has opted in (the log
+// file exists). The probe is a single existsSync — sub-millisecond on a
+// warm cache — so users who never enable logging pay no measurable
+// cost. Errors are swallowed inside `appendSessionRecord` so logging
+// never disrupts a live render.
+function logSessionIfEnabled(
+  input: StatuslineInput,
+  deps: { getGitInfo: typeof getGitInfo; skipPermissions: boolean },
+): void {
+  const sessionId = input.session?.id;
+  if (!sessionId) return;
+  const paths = defaultSessionLogPaths();
+  if (!isSessionLogEnabled(paths)) return;
+
+  const cwd = input.cwd ?? input.workspace?.current_dir ?? null;
+  const gitBranch = cwd ? deps.getGitInfo(cwd).branch ?? null : null;
+  const record: SessionRecord = {
+    v: 1,
+    session_id: sessionId,
+    started_at: input.session?.start_time ?? null,
+    logged_at: new Date().toISOString(),
+    model_id: input.model?.id ?? null,
+    model_display_name: input.model?.display_name ?? null,
+    cost_usd:
+      typeof input.cost?.total_cost_usd === "number"
+        ? input.cost.total_cost_usd
+        : null,
+    cwd,
+    git_branch: gitBranch,
+    exceeds_200k_tokens: input.exceeds_200k_tokens === true,
+    fast_mode: input.fast_mode === true,
+  };
+  appendSessionRecord(paths, record);
+}
+
+// Read-only by default (just prints the rolled-up view). `--enable` /
+// `--disable` toggle local-only tracking. `--json` swaps the table for
+// a structured object.
+function runSummaryCmd(args: string[]): number {
+  const paths = defaultSessionLogPaths();
+
+  if (args.includes("--enable")) {
+    enableSessionLog(paths);
+    process.stdout.write(
+      `Tracking enabled. Future sessions will be logged to ${paths.file}.\n` +
+        "All data stays local. Run `claudeline summary --disable` to stop and delete.\n",
+    );
+    return 0;
+  }
+
+  if (args.includes("--disable")) {
+    disableSessionLog(paths);
+    process.stdout.write(`Tracking disabled. Removed ${paths.file}.\n`);
+    return 0;
+  }
+
+  if (!isSessionLogEnabled(paths)) {
+    process.stdout.write(
+      "No local session log found.\n" +
+        "Run `claudeline summary --enable` to start tracking cost / model usage per session.\n" +
+        "All data stays on this machine. See `claudeline --help` for details.\n",
+    );
+    return 0;
+  }
+
+  const summary = summarize(paths);
+
+  if (args.includes("--json")) {
+    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    return 0;
+  }
+
+  process.stdout.write(formatSummary(summary));
+  return 0;
+}
+
+function formatSummary(s: ReturnType<typeof summarize>): string {
+  const out: string[] = [];
+  out.push("");
+  out.push(`  ${bold("claudeline summary")}`);
+  out.push(`  ${dim(`log: ${s.log_file}`)}`);
+  out.push("");
+
+  const windows: Array<keyof typeof s.windows> = [
+    "today",
+    "this_week",
+    "this_month",
+    "all_time",
+  ];
+  for (const key of windows) {
+    const w = s.windows[key];
+    out.push(`  ${bold(w.label.padEnd(11))} ${formatCost(w.total_cost_usd)} across ${w.sessions} session${w.sessions === 1 ? "" : "s"}`);
+    if (w.by_model.length > 0 && w.sessions > 0) {
+      const top = w.by_model.slice(0, 3);
+      for (const m of top) {
+        out.push(
+          `              ${dim("·")} ${m.model.padEnd(28)} ${dim(formatCost(m.cost_usd))} ${dim(`(${m.sessions} session${m.sessions === 1 ? "" : "s"})`)}`,
+        );
+      }
+    }
+    out.push("");
+  }
+  return out.join("\n");
+}
+
+function formatCost(usd: number): string {
+  if (usd >= 1) return `$${usd.toFixed(2)}`;
+  return `$${usd.toFixed(3)}`;
+}
+
+function bold(s: string): string {
+  if (!process.stdout.isTTY || process.env["NO_COLOR"]) return s;
+  return `\x1b[1m${s}\x1b[0m`;
+}
+
+function dim(s: string): string {
+  if (!process.stdout.isTTY || process.env["NO_COLOR"]) return s;
+  return `\x1b[2m${s}\x1b[0m`;
 }
 
 function parseForce24(raw: string | undefined): boolean | undefined {

@@ -5,6 +5,7 @@ import {
   type RenderDeps,
   nextMonthFirstEpoch,
   renderStatusline,
+  renderStatuslineData,
 } from "../src/render.js";
 import type { RateState } from "../src/state.js";
 import { mockDeps, stripAnsi } from "./_mockDeps.js";
@@ -494,3 +495,113 @@ describe("nextMonthFirstEpoch", () => {
 
 // Re-export helper type so the linter sees it used.
 type _CachedUsage = CachedUsage;
+
+describe("renderStatuslineData (--json output)", () => {
+  test("emits a structured snapshot of model/cost/context/session", async () => {
+    const data = await renderStatuslineData(
+      {
+        model: { id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6" },
+        session: { id: "abc123", start_time: "2026-04-26T17:00:00Z" },
+        cwd: "/tmp/repo",
+        cost: { total_cost_usd: 1.42 },
+        context_window: {
+          context_window_size: 200_000,
+          used_percentage: 25,
+          current_usage: {
+            input_tokens: 1000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 500,
+            output_tokens: 200,
+          },
+        },
+        effort: { level: "high" },
+        thinking: { enabled: true },
+        fast_mode: true,
+      },
+      mockDeps(),
+      { version: "9.9.9" },
+    );
+
+    expect(data.version).toBe("9.9.9");
+    expect(data.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(data.model.id).toBe("claude-sonnet-4-6");
+    expect(data.model.display_name).toBe("Claude Sonnet 4.6");
+    expect(data.session.id).toBe("abc123");
+    expect(data.session.elapsed_seconds).toBeGreaterThan(0);
+    expect(data.cost.total_usd).toBe(1.42);
+    expect(data.cost.source).toBe("server");
+    expect(data.context.used_percentage).toBe(25);
+    expect(data.context.window_size).toBe(200_000);
+    expect(data.context.tokens.input).toBe(1000);
+    expect(data.effort.level).toBe("high");
+    expect(data.thinking.enabled).toBe(true);
+    expect(data.flags.fast_mode).toBe(true);
+    expect(data.flags.exceeds_200k_tokens).toBe(false);
+    expect(data.directory.cwd).toBe("/tmp/repo");
+  });
+
+  test("derives cost from tokens × pricing when no server cost", async () => {
+    const data = await renderStatuslineData(
+      {
+        model: { id: "claude-opus-4-1", display_name: "Opus 4.1" },
+        cwd: "/tmp",
+        // No `cost` field — exercise the estimation branch.
+        context_window: {
+          current_usage: {
+            input_tokens: 1_000_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 100_000,
+          },
+        },
+      },
+      mockDeps(),
+      { version: "9.9.9" },
+    );
+
+    expect(data.cost.source).toBe("estimated");
+    expect(typeof data.cost.total_usd).toBe("number");
+    expect(data.cost.total_usd).toBeGreaterThan(0);
+  });
+
+  test("rate_limits.five_hour comes from stdin payload when present", async () => {
+    const data = await renderStatuslineData(
+      {
+        model: { display_name: "Sonnet" },
+        cwd: "/tmp",
+        rate_limits: {
+          five_hour: { used_percentage: 42, resets_at: "2026-04-27T13:20:00Z" },
+          seven_day: { used_percentage: 18, resets_at: "2026-05-01T00:00:00Z" },
+        },
+      },
+      mockDeps(),
+      { version: "9.9.9" },
+    );
+
+    expect(data.rate_limits.five_hour?.pct).toBe(42);
+    expect(data.rate_limits.five_hour?.resets_at_epoch).toBe(
+      Math.floor(new Date("2026-04-27T13:20:00Z").getTime() / 1000),
+    );
+    expect(data.rate_limits.seven_day?.pct).toBe(18);
+  });
+
+  test("nulls out missing fields rather than omitting them", async () => {
+    const data = await renderStatuslineData(
+      { model: { display_name: "Sonnet" }, cwd: "/tmp" },
+      mockDeps(),
+      { version: "9.9.9" },
+    );
+
+    // Schema stays stable for editor consumers; absent → null, not undefined/missing key.
+    expect(data.model.id).toBeNull();
+    expect(data.cost.total_usd).toBeNull();
+    expect(data.cost.source).toBeNull();
+    expect(data.session.id).toBeNull();
+    expect(data.session.elapsed_seconds).toBeNull();
+    expect(data.effort.level).toBeNull();
+    expect(data.context.used_percentage).toBeNull();
+    expect(data.directory.git.branch).toBeNull();
+    expect(data.rate_limits.five_hour).toBeNull();
+    expect(data.latency.last_ms).toBeNull();
+  });
+});

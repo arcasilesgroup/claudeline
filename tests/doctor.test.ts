@@ -12,6 +12,7 @@ import {
   checkStateShape,
   checkStatusLine,
   checkStdinSchema,
+  flattenLines,
   printReport,
   runDoctor,
 } from "../src/doctor.js";
@@ -363,11 +364,12 @@ describe("runDoctor (composition)", () => {
     expect(report.sections[1]?.lines[0]?.message).toContain("statusLine");
   });
 
-  test("flat lines view stays in section order for back-compat", () => {
+  test("flattenLines walks sections in declaration order", () => {
     const report = runDoctor(happyEnv());
-    expect(report.lines[0]?.message).toContain("Version: claudeline");
+    const lines = flattenLines(report);
+    expect(lines[0]?.message).toContain("Version: claudeline");
     // Health closes the report; state/cache shape is the last fact.
-    const last = report.lines[report.lines.length - 1];
+    const last = lines[lines.length - 1];
     expect(last?.message).toMatch(/(State file|Cache entry)/);
   });
 });

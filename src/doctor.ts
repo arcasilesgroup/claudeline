@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import * as z from "zod/mini";
-import { palette, RESET, style } from "./ansi.js";
+import { paint, palette, style } from "./ansi.js";
 import { adoptCachedUsage } from "./cache.js";
 import { statuslineInputSchema } from "./schemas.js";
 import { readSettingsFile } from "./settings.js";
@@ -41,12 +41,16 @@ export interface DoctorSection {
 
 export interface DoctorReport {
   // Grouped, display-oriented view: each section renders as a tree.
-  // Tests can still flatten across sections via `lines` below.
+  // Tests and consumers flatten via `flattenLines(report)` below.
   sections: DoctorSection[];
-  // Flat view across all sections. Preserves the contract of pre-0.3
-  // tests that walked `report.lines` directly.
-  lines: DoctorLine[];
   summary: { ok: number; warnings: number; errors: number };
+}
+
+// Flat view across all sections. Exported so callers don't have to
+// reach into `sections` and re-flatMap inline. The summary is derived
+// off this list inside `runDoctor`.
+export function flattenLines(report: DoctorReport): DoctorLine[] {
+  return report.sections.flatMap((s) => s.lines);
 }
 
 // Each check accepts (env) and returns a single DoctorLine. They are
@@ -350,18 +354,19 @@ export function runDoctor(env: DoctorEnv): DoctorReport {
     },
   ];
 
-  const lines = sections.flatMap((s) => s.lines);
-  const summary = lines.reduce(
-    (acc, line) => {
-      if (line.status === "ok") acc.ok += 1;
-      else if (line.status === "warn") acc.warnings += 1;
-      else if (line.status === "error") acc.errors += 1;
-      return acc;
-    },
-    { ok: 0, warnings: 0, errors: 0 },
-  );
+  const summary = sections
+    .flatMap((s) => s.lines)
+    .reduce(
+      (acc, line) => {
+        if (line.status === "ok") acc.ok += 1;
+        else if (line.status === "warn") acc.warnings += 1;
+        else if (line.status === "error") acc.errors += 1;
+        return acc;
+      },
+      { ok: 0, warnings: 0, errors: 0 },
+    );
 
-  return { sections, lines, summary };
+  return { sections, summary };
 }
 
 // --- Formatting -----------------------------------------------------
@@ -398,9 +403,12 @@ export function printReport(
   report: DoctorReport,
   opts: PrintReportOptions = {},
 ): string {
+  // Local alias so the call sites read `c(palette.x, "text")` rather
+  // than `paint("text", palette.x, color)` over and over. Argument
+  // order matches paint() (text, ansi, enabled) but with enabled
+  // captured from `opts`.
   const color = opts.color !== false;
-  const c = (open: string, body: string): string =>
-    color ? `${open}${body}${RESET}` : body;
+  const c = (ansi: string, body: string): string => paint(body, ansi, color);
 
   const out: string[] = [];
   // Top rule — visual anchor that the report has begun. clig.dev:
@@ -425,7 +433,7 @@ export function printReport(
 
   // Issues block. Order preserves the section traversal so the user
   // can correlate a warning back to where the fact lives.
-  const issues = report.lines.filter(
+  const issues = flattenLines(report).filter(
     (l) => l.status === "warn" || l.status === "error",
   );
   for (const issue of issues) {
