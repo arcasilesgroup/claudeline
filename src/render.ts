@@ -66,6 +66,14 @@ export interface RenderDeps {
   // when the cache is usable but old. Tests omit this so the SWR path
   // stays inert in renderStatusline-only unit tests.
   refreshInBackground?(): void;
+  // When true, ignore `input.rate_limits` from stdin and always read
+  // from the OAuth-API cache (or fetch). Default false preserves the
+  // stdin-first priority that's correct for the common case (recent
+  // Claude Code versions pass fresh rate_limits in stdin). Setting via
+  // CLAUDELINE_PREFER_API=1 makes `claudeline refresh` actually drive
+  // what's shown, at the cost of one extra OAuth API call when the
+  // cache expires.
+  preferApi?: boolean;
 }
 
 // SWR threshold: cached data older than this triggers a background
@@ -410,7 +418,15 @@ async function gatherRateLimits(
   latencyMs: number | undefined;
   latencySummary: LatencySummary | undefined;
 }> {
-  const fromStdin = extractRateLimitsFromInput(input);
+  // CLAUDELINE_PREFER_API=1 (or programmatic deps.preferApi=true) skips
+  // this stdin-first path, forcing the renderer to read from the
+  // OAuth-API cache. The trade-off is documented under "Freshness" in
+  // the README — most users want stdin priority because it's what the
+  // active session itself sees, but power users who hit `claudeline
+  // refresh` and expect numbers to update need API priority.
+  const fromStdin = deps.preferApi
+    ? null
+    : extractRateLimitsFromInput(input);
   if (fromStdin) {
     const cachedInfo = deps.cacheLoad();
     const extra = cachedInfo

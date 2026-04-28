@@ -211,6 +211,7 @@ function buildRealDoctorEnv(): DoctorEnv {
       return meta ? Math.max(0, Date.now() - meta.mtimeMs) : undefined;
     },
     cacheTtlMs: resolveCacheTtlMs(process.env["CLAUDELINE_CACHE_TTL_SEC"]),
+    preferApi: parseBooleanEnv(process.env["CLAUDELINE_PREFER_API"]),
   };
 
   const bunVersion = process.versions["bun"];
@@ -288,6 +289,7 @@ async function runRender(args: string[]): Promise<number> {
     },
     cacheSave: (data: CachedUsage) => saveJsonCache(cachePath, data),
     refreshInBackground: () => spawnDetachedRefresh(),
+    preferApi: parseBooleanEnv(process.env["CLAUDELINE_PREFER_API"]),
     loadState: (): RateState => loadState(statePath),
     saveState: (state: RateState) => saveState(statePath, state),
   };
@@ -433,6 +435,16 @@ const CACHE_TTL_DEFAULT_MS = 30_000;
 const CACHE_TTL_MIN_SEC = 1;
 const CACHE_TTL_MAX_SEC = 300;
 
+// Boolean env-var parser. Accepts: "1", "true", "TRUE", "yes" (case-
+// insensitive) → true. Anything else, including unset, → false. Used
+// for opt-in feature flags where the default-off matters more than
+// catching every typo.
+export function parseBooleanEnv(envValue: string | undefined): boolean {
+  if (!envValue) return false;
+  const normalised = envValue.trim().toLowerCase();
+  return normalised === "1" || normalised === "true" || normalised === "yes";
+}
+
 export function resolveCacheTtlMs(envValue: string | undefined): number {
   if (envValue === undefined || envValue === "") return CACHE_TTL_DEFAULT_MS;
   const n = Number(envValue);
@@ -488,7 +500,19 @@ async function runRefreshCmd(): Promise<number> {
     return 1;
   }
   saveJsonCache(cachePath, { data: fetched.data, latencyMs: fetched.latencyMs });
+  const preferApi = parseBooleanEnv(process.env["CLAUDELINE_PREFER_API"]);
   process.stdout.write(`Cache refreshed (${fetched.latencyMs} ms latency).\n`);
+  if (!preferApi) {
+    // Most users won't have CLAUDELINE_PREFER_API set, which means
+    // recent Claude Code versions (which pass `rate_limits` in stdin)
+    // will use that source instead of this cache. Surface the gap so
+    // they know why their statusline didn't move after a refresh.
+    process.stdout.write(
+      "Note: when Claude Code passes rate_limits in stdin, the statusline\n" +
+        "uses those values directly and bypasses this cache. To make refresh\n" +
+        "drive what's shown, export CLAUDELINE_PREFER_API=1 and reload Claude Code.\n",
+    );
+  }
   return 0;
 }
 

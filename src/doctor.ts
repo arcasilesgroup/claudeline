@@ -96,6 +96,11 @@ export interface DoctorEnv {
   // CLAUDELINE_CACHE_TTL_SEC). Surfaces alongside the age so the user
   // sees both the current freshness and the ceiling.
   cacheTtlMs: number;
+  // Whether CLAUDELINE_PREFER_API is set. When true, render skips the
+  // input.rate_limits stdin path and always uses the OAuth-API cache.
+  // Surfaced in Diagnostics so users know which source `claudeline
+  // refresh` is going to actually drive.
+  preferApi: boolean;
 }
 
 const KNOWN_EFFORT_LEVELS = new Set(["max", "xhigh", "high", "medium", "low"]);
@@ -349,6 +354,21 @@ function diagnosticsLines(env: DoctorEnv): DoctorLine[] {
     lines.push({
       status: "info",
       message: `Cache age: ${ageSec}s (TTL ${ttlSec}s)`,
+    });
+  }
+  // Rate-limit source preference. Tells the user which path
+  // `claudeline refresh` actually drives. The default (stdin priority)
+  // is silent because it's the common case; only surface when the
+  // override is on so the diagnostics line stays terse for everyone.
+  if (env.preferApi) {
+    lines.push({
+      status: "info",
+      message: "Rate-limit source: api (CLAUDELINE_PREFER_API=1)",
+    });
+  } else {
+    lines.push({
+      status: "info",
+      message: "Rate-limit source: stdin → api fallback (default)",
     });
   }
   return lines;

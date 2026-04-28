@@ -306,6 +306,34 @@ describe("adoptCachedUsage (cache-shape migration)", () => {
   });
 });
 
+describe("parseBooleanEnv (CLAUDELINE_PREFER_API and friends)", () => {
+  test("returns false for unset / empty", async () => {
+    const { parseBooleanEnv } = await import("../src/cli.js");
+    expect(parseBooleanEnv(undefined)).toBe(false);
+    expect(parseBooleanEnv("")).toBe(false);
+    expect(parseBooleanEnv("   ")).toBe(false);
+  });
+
+  test("returns true for 1 / true / yes (case-insensitive)", async () => {
+    const { parseBooleanEnv } = await import("../src/cli.js");
+    expect(parseBooleanEnv("1")).toBe(true);
+    expect(parseBooleanEnv("true")).toBe(true);
+    expect(parseBooleanEnv("TRUE")).toBe(true);
+    expect(parseBooleanEnv("True")).toBe(true);
+    expect(parseBooleanEnv("yes")).toBe(true);
+    expect(parseBooleanEnv("YES")).toBe(true);
+    expect(parseBooleanEnv("  yes  ")).toBe(true);
+  });
+
+  test("returns false for everything else (including 0, false, garbage)", async () => {
+    const { parseBooleanEnv } = await import("../src/cli.js");
+    expect(parseBooleanEnv("0")).toBe(false);
+    expect(parseBooleanEnv("false")).toBe(false);
+    expect(parseBooleanEnv("nope")).toBe(false);
+    expect(parseBooleanEnv("2")).toBe(false);
+  });
+});
+
 describe("resolveCacheTtlMs (CLAUDELINE_CACHE_TTL_SEC)", () => {
   test("defaults to 30000ms when env unset", async () => {
     const { resolveCacheTtlMs } = await import("../src/cli.js");

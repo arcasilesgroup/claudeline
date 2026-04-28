@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-04-28
+
+Honesty patch on top of 0.4.1's freshness work. Reported by a user who
+ran `claudeline refresh` twice and the statusline didn't move — turns
+out `refresh` only updates the OAuth-API cache, but recent Claude Code
+versions pass `rate_limits` directly in stdin and the renderer uses
+that source by default. The cache update was happening; nobody was
+reading it.
+
+### Added
+
+- **`CLAUDELINE_PREFER_API=1`** — opt-in env var that makes the
+  renderer ignore `input.rate_limits` from stdin and always read from
+  the OAuth-API cache. Now `claudeline refresh` actually drives what's
+  shown for users who set this. Trade-off: one extra API fetch when the
+  cache expires, and you lose "always as fresh as my session knows".
+- **Diagnostics line in `doctor`**: `Rate-limit source: stdin → api
+  fallback (default)` or `Rate-limit source: api (CLAUDELINE_PREFER_API=1)`.
+  Surfaces which path is in effect so users know what `refresh` will
+  actually drive.
+- **`claudeline refresh` hint** — when running without
+  `CLAUDELINE_PREFER_API=1`, the command now prints a note explaining
+  that stdin probably overrides the cache, and how to opt in. The hint
+  is suppressed when the env var is already set.
+
+### Changed
+
+- **`RenderDeps.preferApi: boolean`** (optional) — internal-only,
+  threaded from cli.ts to render.ts. `DoctorEnv.preferApi` is the
+  required mirror for the doctor diagnostic.
+
+### Internal
+
+- New `parseBooleanEnv` helper in cli.ts (accepts `1` / `true` / `yes`
+  case-insensitive; everything else → false). Used for
+  `CLAUDELINE_PREFER_API`; reusable for future opt-in flags.
+
+### Tests
+
+- 329 → 336 (+7). New SWR-with-preferApi cases in `tests/render.test.ts`
+  (preferApi=true skips stdin even when present; preferApi=false keeps
+  stdin priority). New `parseBooleanEnv` parser tests in
+  `tests/cli.test.ts`. New rate-limit source diagnostic tests in
+  `tests/doctor.test.ts`.
+
 ## [0.4.1] - 2026-04-28
 
 Freshness improvements for the rate-limit ribbon. The statusline still

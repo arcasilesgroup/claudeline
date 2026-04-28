@@ -687,6 +687,61 @@ describe("stale-while-revalidate cache path", () => {
     expect(bgCalls).toBe(0); // no SWR spawn — we already have fresh data
   });
 
+  test("preferApi=true skips the stdin path even when rate_limits are present", async () => {
+    let bgCalls = 0;
+    let syncFetches = 0;
+    // Input has rate_limits in stdin — would normally take the
+    // stdin-first path. With preferApi=true we expect the renderer to
+    // ignore stdin and fall through to the cache/API logic.
+    await renderStatusline(
+      {
+        cwd: "/tmp",
+        rate_limits: {
+          five_hour: { used_percentage: 30, resets_at: "2026-04-27T13:20:00Z" },
+        },
+      },
+      {
+        ...mockDeps(),
+        preferApi: true,
+        loadToken: () => "tok",
+        fetchUsage: async () => {
+          syncFetches += 1;
+          return undefined;
+        },
+        cacheLoad: () => undefined, // no cache, force sync fetch path
+        refreshInBackground: () => {
+          bgCalls += 1;
+        },
+      },
+    );
+    // We bypassed stdin and tried to fetch from the API.
+    expect(syncFetches).toBe(1);
+    expect(bgCalls).toBe(0);
+  });
+
+  test("preferApi=false (default) keeps the stdin priority", async () => {
+    let syncFetches = 0;
+    await renderStatusline(
+      {
+        cwd: "/tmp",
+        rate_limits: {
+          five_hour: { used_percentage: 30, resets_at: "2026-04-27T13:20:00Z" },
+        },
+      },
+      {
+        ...mockDeps(),
+        loadToken: () => "tok",
+        fetchUsage: async () => {
+          syncFetches += 1;
+          return undefined;
+        },
+        cacheLoad: () => undefined,
+      },
+    );
+    // Stdin wins; no API fetch attempted.
+    expect(syncFetches).toBe(0);
+  });
+
   test("renderStatusline tolerates missing refreshInBackground (older callers / tests)", async () => {
     // Behaves like cache-fresh-no-deps: serve cached, no spawn attempted.
     const out = await renderStatusline(

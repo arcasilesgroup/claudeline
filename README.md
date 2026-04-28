@@ -257,14 +257,29 @@ to 1–300). Each render does one of three things based on cache age:
 - **>TTL or missing:** fetch synchronously
 
 If you want the freshest numbers right now, run `claudeline refresh` —
-it does a synchronous OAuth fetch and updates the cache immediately. The
-next render picks it up. `claudeline doctor` shows the current cache age
-and configured TTL so you can debug "claudeline says X, claude.ai says
-Y" mismatches.
+it does a synchronous OAuth fetch and updates the cache immediately.
+`claudeline doctor` shows the current cache age and configured TTL so
+you can debug "claudeline says X, claude.ai says Y" mismatches.
 
-Note: when Claude Code passes `rate_limits` directly in stdin (recent
-Claude Code versions do this), claudeline uses that and skips the cache
-entirely — it's already as fresh as the active session itself.
+**Important caveat — stdin priority and the `--prefer-api` escape hatch:**
+recent Claude Code versions pass `rate_limits` directly in stdin on every
+render. By default claudeline uses that source (it's whatever the active
+session itself sees) and **bypasses the cache entirely** for the 5-hour /
+weekly bars. That means `claudeline refresh` updates the cache but you
+won't see the change in your statusline — Claude Code is already
+overriding it with stdin data on the next render.
+
+If you want `claudeline refresh` to actually drive what's shown:
+
+```bash
+export CLAUDELINE_PREFER_API=1
+# reload Claude Code so it spawns claudeline with the new env
+```
+
+This forces every render to use the OAuth-API cache. The trade-off is one
+extra API call when the cache expires (every 30 s by default), and you
+lose the "always as fresh as my session knows" property of stdin priority.
+`claudeline doctor` shows which source is in effect under Diagnostics.
 
 ### `claudeline doctor`
 

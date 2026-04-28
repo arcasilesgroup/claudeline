@@ -60,6 +60,7 @@ function happyEnv(overrides: Partial<DoctorEnv> = {}): DoctorEnv {
     // Tests that need the empty-cache message override `cacheAgeMs`.
     cacheAgeMs: () => 12_000,
     cacheTtlMs: 30_000,
+    preferApi: false,
     ...overrides,
   };
 }
@@ -417,6 +418,19 @@ describe("printReport", () => {
     const env = happyEnv({ cacheAgeMs: () => 8_000, cacheTtlMs: 60_000 });
     const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
     expect(printed).toContain("Cache age: 8s (TTL 60s)");
+  });
+
+  test("rate-limit source line shows the default when preferApi=false", () => {
+    const printed = stripAnsi(printReport(runDoctor(happyEnv()), { color: false }));
+    expect(printed).toContain("Rate-limit source: stdin → api fallback (default)");
+    expect(printed).not.toContain("CLAUDELINE_PREFER_API=1");
+  });
+
+  test("rate-limit source line flips to api when preferApi=true", () => {
+    const env = happyEnv({ preferApi: true });
+    const printed = stripAnsi(printReport(runDoctor(env), { color: false }));
+    expect(printed).toContain("Rate-limit source: api (CLAUDELINE_PREFER_API=1)");
+    expect(printed).not.toContain("stdin → api fallback");
   });
 
   test("warning case renders the issue block with a tree-style fix", () => {
