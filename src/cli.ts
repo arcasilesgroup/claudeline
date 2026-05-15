@@ -782,12 +782,17 @@ async function readStdin(): Promise<string> {
 // module loads the symbols (`adoptCachedUsage`, etc.) without firing
 // the CLI side effects.
 //
-// `process.argv[1]` is the script path Node was invoked with. When the
-// user runs `claudeline`, that path is a symlink (npm/bun installs a
-// shim like `~/.bun/bin/claudeline → ../install/global/.../dist/cli.js`).
-// Resolve the symlink before comparing — otherwise the shim never matches
-// and `main()` silently does nothing.
+// `import.meta.main` is the authoritative signal under Bun and Node ≥22 —
+// it's `true` iff this module is the entry. We trust it when present so
+// Bun standalone binaries (where `process.argv[1]` is a `/$bunfs/` path
+// that ends in neither `cli.js` nor `cli.ts`) still fire `main()`.
+//
+// Fallback for older Node: compare the resolved `process.argv[1]` against
+// the script name. The installed shim is a symlink (npm/bun creates
+// `~/.bun/bin/claudeline → .../dist/cli.js`); resolve it first.
 const isEntrypoint = (() => {
+  const metaMain = (import.meta as { main?: boolean }).main;
+  if (typeof metaMain === "boolean") return metaMain;
   const argvScript = process.argv[1];
   if (!argvScript) return false;
   let resolved: string;

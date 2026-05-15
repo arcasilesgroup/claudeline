@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-05-15
+
+Bug fix for the standalone binaries shipped via Homebrew (and any other
+distribution that consumes the `bun build --compile` artifacts). 0.4.3's
+binaries exited 0 with no output for every command — `--version`,
+`--help`, `render`, etc. The `dist/cli.js` npm bundle was unaffected, so
+this only bit users on the brew path.
+
+### Fixed
+
+- **Standalone binary entrypoint detection.** `src/cli.ts` only treated
+  itself as the program entry when `process.argv[1]` ended in `cli.js`
+  or `cli.ts`. Bun standalone binaries set `process.argv[1]` to an
+  internal `/$bunfs/…` path that matches neither suffix, so `main()`
+  silently never ran. Now we trust `import.meta.main` when the runtime
+  exposes it (Bun standalone, Bun CLI, Node ≥22) and fall back to the
+  path-suffix check for older Node bundles.
+
+### Internal
+
+- Test surface unchanged (356 pass). Tests import `src/cli.ts` via
+  dynamic `import()` to grab symbols without firing side effects; that
+  path remains untouched because `import.meta.main` is `false` on
+  imported modules.
+
 ## [0.4.3] - 2026-04-28
 
 UX fix on top of 0.4.2. Reported live: user added
