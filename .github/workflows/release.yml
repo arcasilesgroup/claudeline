@@ -1,37 +1,57 @@
 name: Release
 
+# Hardened release pipeline (mirrors the arcasilesgroup/ai-engineering pattern):
+#   * OIDC trusted publishing — NO long-lived NPM_TOKEN, nothing to rotate or leak.
+#   * Every third-party action pinned to a full commit SHA (tag in trailing comment).
+#   * Least-privilege permissions, granted per job only where needed.
+#   * Build once -> verify -> publish the exact same artifact (no rebuild drift).
+#   * Sigstore provenance: npm registry provenance (auto via OIDC) for the package,
+#     GitHub build provenance attestations for the standalone binaries.
+#   * Serialized per tag via a concurrency group so two releases never race.
+
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)publish, e.g. v0.4.5"
+        required: true
+        type: string
 
+# Default to read-only; jobs opt into the extra scopes they actually need.
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.event.inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish to npm
+  build:
+    name: Build, verify, pack (build once)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout release source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
-
-      - name: Setup Node (for npm publish)
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Verify package.json version matches release tag
+        env:
+          TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${TAG#v}"
           pkg=$(node -p "require('./package.json').version")
           if [ "$tag" != "$pkg" ]; then
             echo "::error::tag $tag does not match package.json version $pkg"
@@ -42,39 +62,89 @@ jobs:
         run: bun test
 
       - name: Typecheck
-        run: bunx tsc --noEmit
+        run: bun run lint
 
       - name: Build bundle
         run: bun build src/cli.ts --target=node --outfile=dist/cli.js --minify --banner='#!/usr/bin/env node'
 
-      - name: Publish to npm
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Pack the publishable tarball
+        run: npm pack --pack-destination dist-pack
+
+      - name: SHA256 checksum of tarball
+        working-directory: dist-pack
+        run: |
+          shasum -a 256 *.tgz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload npm-dist artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: npm-dist
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/cli.js
+            dist-pack/*.tgz
+            dist-pack/SHA256SUMS.txt
+
+  publish-npm:
+    name: Publish to npm (OIDC trusted publishing)
+    needs: build
+    runs-on: ubuntu-latest
+    # The `npm` GitHub Environment is where deployment protection rules
+    # (required reviewers, branch/tag restrictions) are enforced before publish.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@arcasilesgroup/claudeline
+    permissions:
+      contents: read
+      id-token: write # OIDC: short-lived, workflow-scoped credential. No NPM_TOKEN.
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for OIDC trusted publishing (requires >= 11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Download npm-dist artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: npm-dist
+          path: artifact
+
+      - name: Publish the packed tarball
+        # No NODE_AUTH_TOKEN: npm detects the OIDC environment and mints a
+        # short-lived credential. Registry provenance is attached automatically.
+        run: npm publish artifact/dist-pack/*.tgz --access public
 
   binaries:
-    name: Build binary (${{ matrix.target }})
+    name: Binary (${{ matrix.target }})
+    needs: build
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: write # upload assets to the GitHub Release
+      id-token: write # build-provenance attestation
+      attestations: write # build-provenance attestation
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Cross-compile darwin-x64 from the arm64 host so we don't
-          # depend on macos-13 runners (chronically backed up — every
-          # 0.2.x release queued for >20 min there). Bun's --compile
-          # honours --target regardless of the host arch.
           - { os: macos-latest, target: bun-darwin-arm64, asset: claudeline-darwin-arm64 }
           - { os: macos-latest, target: bun-darwin-x64, asset: claudeline-darwin-x64 }
           - { os: ubuntu-latest, target: bun-linux-x64, asset: claudeline-linux-x64 }
           - { os: ubuntu-24.04-arm, target: bun-linux-arm64, asset: claudeline-linux-arm64 }
           - { os: windows-latest, target: bun-windows-x64, asset: claudeline-windows-x64.exe }
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout release source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
 
@@ -84,10 +154,15 @@ jobs:
       - name: Build binary
         run: bun build src/cli.ts --compile --target=${{ matrix.target }} --outfile=dist/${{ matrix.asset }}
 
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: dist/${{ matrix.asset }}
+
       - name: Compute SHA256 (Unix)
         if: runner.os != 'Windows'
-        run: shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
         working-directory: dist
+        run: shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
 
       - name: Compute SHA256 (Windows)
         if: runner.os == 'Windows'
@@ -100,5 +175,6 @@ jobs:
       - name: Upload to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
         shell: bash
-        run: gh release upload "${GITHUB_REF_NAME}" "dist/${{ matrix.asset }}" "dist/${{ matrix.asset }}.sha256" --clobber
+        run: gh release upload "${TAG}" "dist/${{ matrix.asset }}" "dist/${{ matrix.asset }}.sha256" --clobber
