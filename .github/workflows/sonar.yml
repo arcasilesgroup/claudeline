@@ -2,12 +2,11 @@ name: SonarCloud
 
 # Static analysis + coverage quality gate via SonarCloud.
 #
-# The analysis job is GATED on the SONAR_TOKEN secret: until the token is
-# configured the heavy job is skipped (so main / PRs stay green), and a warning
-# explains how to wire it. Once SONAR_TOKEN is set the job runs for real and
-# waits on the SonarCloud quality gate (`sonar.qualitygate.wait=true`), failing
-# the check when the gate is red. Make the `SonarCloud` check required only
-# after the token is configured. See docs/RELEASING.md / README for setup.
+# Fail-loud by design: the job ALWAYS runs and fails when SonarCloud is not
+# working — a missing SONAR_TOKEN or a red quality gate both turn the required
+# `SonarCloud` check red, so a broken/unconfigured analysis is never silent.
+# Setup: import the repo on sonarcloud.io and add the SONAR_TOKEN repo secret
+# (see README / docs/RELEASING.md).
 
 on:
   push:
@@ -19,33 +18,8 @@ permissions:
   contents: read
 
 jobs:
-  token-guard:
-    name: SonarCloud token guard
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    permissions:
-      contents: read
-    outputs:
-      configured: ${{ steps.check.outputs.configured }}
-    steps:
-      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
-        with:
-          egress-policy: audit
-      - id: check
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          if [ -n "$SONAR_TOKEN" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::SONAR_TOKEN is not set — skipping SonarCloud analysis. Add the repo secret to enable it."
-          fi
-
   sonarcloud:
     name: SonarCloud
-    needs: token-guard
-    if: needs.token-guard.outputs.configured == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -54,6 +28,14 @@ jobs:
       - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
         with:
           egress-policy: audit
+      - name: Assert SONAR_TOKEN is configured
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::SONAR_TOKEN is not set — SonarCloud cannot run. Add the repo secret (sonarcloud.io → My Account → Security)."
+            exit 1
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # Full history so SonarCloud can assign blame / new-code periods.
