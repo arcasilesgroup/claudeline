@@ -1,0 +1,77 @@
+name: SonarCloud
+
+# Static analysis + coverage quality gate via SonarCloud.
+#
+# The analysis job is GATED on the SONAR_TOKEN secret: until the token is
+# configured the heavy job is skipped (so main / PRs stay green), and a warning
+# explains how to wire it. Once SONAR_TOKEN is set the job runs for real and
+# waits on the SonarCloud quality gate (`sonar.qualitygate.wait=true`), failing
+# the check when the gate is red. Make the `SonarCloud` check required only
+# after the token is configured. See docs/RELEASING.md / README for setup.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  token-guard:
+    name: SonarCloud token guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - id: check
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SONAR_TOKEN is not set — skipping SonarCloud analysis. Add the repo secret to enable it."
+          fi
+
+  sonarcloud:
+    name: SonarCloud
+    needs: token-guard
+    if: needs.token-guard.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history so SonarCloud can assign blame / new-code periods.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Tests with coverage (lcov)
+        run: bun test --coverage --coverage-reporter=lcov
+      - name: SonarCloud scan + quality gate
+        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
