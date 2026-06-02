@@ -68,7 +68,11 @@ jobs:
         run: bun build src/cli.ts --target=node --outfile=dist/cli.js --minify --banner='#!/usr/bin/env node'
 
       - name: Pack the publishable tarball
-        run: npm pack --pack-destination dist-pack
+        # mkdir first: the runner's bundled npm does not create the
+        # --pack-destination directory, unlike newer npm releases.
+        run: |
+          mkdir -p dist-pack
+          npm pack --pack-destination dist-pack
 
       - name: SHA256 checksum of tarball
         working-directory: dist-pack
