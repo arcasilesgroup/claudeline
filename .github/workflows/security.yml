@@ -57,12 +57,32 @@ jobs:
 
   osv:
     name: OSV vulnerability scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
-      actions: read
       contents: read
-      security-events: write
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
-    with:
-      scan-args: |-
-        --recursive
-        ./
+    # Run the pinned osv-scanner BINARY directly instead of the
+    # google/osv-scanner reusable workflow: that reusable workflow uses
+    # unpinned actions internally (actions/download-artifact@v7), which the
+    # repo-level `sha_pinning_required` policy rejects. The binary gives full
+    # control, stays SHA-pin compliant, and fails the job on any advisory so
+    # this check can be a required, non-bypassable merge gate.
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install osv-scanner
+        env:
+          OSV_VERSION: v2.3.5
+          OSV_SHA256: bb30c580afe5e757d3e959f4afd08a4795ea505ef84c46962b9a738aa573b41b
+        run: |
+          curl -sSL -o /tmp/osv-scanner \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  /tmp/osv-scanner" | sha256sum -c -
+          chmod +x /tmp/osv-scanner
+          /tmp/osv-scanner --version
+      - name: Scan for known vulnerabilities
+        run: /tmp/osv-scanner scan --recursive ./
