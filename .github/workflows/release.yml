@@ -31,13 +31,19 @@ jobs:
   build:
     name: Build, verify, pack (build once)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Checkout release source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -97,6 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     # The `npm` GitHub Environment is where deployment protection rules
     # (required reviewers, branch/tag restrictions) are enforced before publish.
+    timeout-minutes: 10
     environment:
       name: npm
       url: https://www.npmjs.com/package/@arcasilesgroup/claudeline
@@ -104,6 +111,10 @@ jobs:
       contents: read
       id-token: write # OIDC: short-lived, workflow-scoped credential. No NPM_TOKEN.
     steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -128,6 +139,9 @@ jobs:
     name: Binary (${{ matrix.target }})
     needs: build
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    # NOTE: no step-security/harden-runner here — it only supports Linux
+    # runners, and this job also runs on macOS and Windows.
     permissions:
       contents: write # upload assets to the GitHub Release
       id-token: write # build-provenance attestation
@@ -146,6 +160,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+          persist-credentials: false
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0

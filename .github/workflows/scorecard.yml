@@ -1,0 +1,56 @@
+# OpenSSF Scorecard — supply-chain posture analysis.
+#
+# Runs the OpenSSF Scorecard checks (branch protection, token permissions,
+# pinned dependencies, dangerous workflow patterns, ...) weekly and on every
+# push to the default branch, then publishes the score to the public OpenSSF
+# dashboard and keeps the SARIF as a workflow artifact.
+#
+# Trust model: top-level read-only; only the analysis job escalates to the two
+# writes it needs (security-events for SARIF, id-token for the OIDC publish to
+# the OpenSSF API — no long-lived secret). Every action is SHA-pinned and
+# harden-runner runs first in non-blocking egress-audit mode.
+
+name: Scorecard
+
+on:
+  schedule:
+    - cron: "30 7 * * 1"
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions: read-all
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Run analysis
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: scorecard-sarif
+          path: results.sarif
+          retention-days: 5
