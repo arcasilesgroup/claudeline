@@ -1,0 +1,133 @@
+name: Governance
+
+# Project-quality gates beyond tests and security scanning. Inspired by the
+# arcasilesgroup/ai-engineering CI: conventional-commit hygiene, the
+# Anti-Suppression rule (CLAUDE.md §13.2), a CHANGELOG floor, and a
+# workflow-policy guard that prevents the supply-chain hardening from
+# regressing. All jobs are read-only and SHA-pinned.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  commit-lint:
+    name: Commit lint (PR title)
+    # PR-only: validates the title that becomes the squash-merge subject.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Validate Conventional Commits title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9_.-]+\))?!?: .+'
+          if ! printf '%s' "$TITLE" | grep -qiE "$pattern"; then
+            echo "::error::PR title is not a Conventional Commit: '$TITLE'"
+            echo "Expected: <type>(<scope>): <subject>  e.g. fix(render): correct context percent"
+            exit 1
+          fi
+          echo "OK: $TITLE"
+
+  no-suppression:
+    name: No suppression markers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Scan source for suppression markers (CLAUDE.md §13.2)
+        run: |
+          # Quality-gate suppressions are forbidden: refactor or risk-accept.
+          # The marker literals below are written with a trailing character
+          # class (e.g. `[e]`) so this very pattern is not itself flagged as a
+          # suppression by scanners — grep still matches the real markers.
+          markers='@ts-ignor[e]|@ts-nochec[k]|@ts-expect-erro[r]|eslint-disabl[e]|biome-ignor[e]|// *nolin[t]|# *noq[a]|# *nose[c]|NOSONA[R]|istanbul ignor[e]|[cv]8 ignor[e]'
+          if grep -rniE "$markers" src tests 2>/dev/null; then
+            echo "::error::suppression marker found — refactor instead of suppressing"
+            exit 1
+          fi
+          echo "OK: no suppression markers"
+
+  changelog:
+    name: CHANGELOG updated
+    # PR-only: a source change must be documented in the same PR.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a CHANGELOG entry when src/ changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changed=$(git diff --name-only "$BASE_SHA" HEAD)
+          echo "Changed files:"; echo "$changed"
+          if echo "$changed" | grep -qE '^src/'; then
+            if ! echo "$changed" | grep -qE '^CHANGELOG\.md$'; then
+              echo "::error::src/ changed but CHANGELOG.md was not updated"
+              exit 1
+            fi
+            echo "OK: CHANGELOG.md updated alongside src/"
+          else
+            echo "OK: no src/ change, CHANGELOG entry not required"
+          fi
+
+  workflow-policy:
+    name: Workflow policy (SHA-pin + permissions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Every action must be pinned to a full commit SHA
+        run: |
+          # Flag any `uses:` that is not a 40-hex SHA and not a local (./) action.
+          if grep -rnE '^\s*-?\s*uses:\s' .github/workflows \
+             | grep -vE 'uses:\s*\./' \
+             | grep -vE 'uses:\s*[^@]+@[0-9a-f]{40}( |$|#)'; then
+            echo "::error::unpinned action reference found (use a full commit SHA)"
+            exit 1
+          fi
+          echo "OK: all actions SHA-pinned"
+      - name: Every workflow must declare top-level permissions
+        run: |
+          missing=0
+          for f in .github/workflows/*.yml; do
+            if ! grep -qE '^permissions:' "$f"; then
+              echo "::error file=$f::missing top-level 'permissions:' block"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] && echo "OK: all workflows declare permissions"
