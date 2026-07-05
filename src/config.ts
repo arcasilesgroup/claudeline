@@ -74,14 +74,24 @@ export function writeConfig(paths: ConfigPaths, config: ClaudelineConfig): void 
 }
 
 export function ensureConfigFile(paths: ConfigPaths): void {
-  if (!existsSync(paths.dir)) {
-    mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
-  }
-  if (!existsSync(paths.file)) {
-    const fd = openSync(paths.file, "a", 0o600);
-    closeSync(fd);
-    // Initialise with `{}` so editors don't see "0 bytes" weirdness.
-    writeFileSync(paths.file, "{}\n", { mode: 0o600 });
+  // `recursive` is idempotent, so no `existsSync` guard is needed.
+  mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+  // Atomic create-if-absent on a file descriptor. `wx` is
+  // `O_CREAT | O_EXCL | O_WRONLY` — the kernel creates the file or fails
+  // with `EEXIST`, collapsing the check-then-write TOCTOU window
+  // (CWE-367) into one syscall. Writes go through the fd, never the
+  // path, so an attacker cannot swap the target between create and write.
+  try {
+    const fd = openSync(paths.file, "wx", 0o600);
+    try {
+      // Initialise with `{}` so editors don't see "0 bytes" weirdness.
+      writeFileSync(fd, "{}\n");
+    } finally {
+      closeSync(fd);
+    }
+  } catch (e) {
+    // Already initialised — leave the existing file untouched.
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
   }
 }
 

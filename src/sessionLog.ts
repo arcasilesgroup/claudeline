@@ -53,12 +53,17 @@ export function isSessionLogEnabled(paths: SessionLogPaths): boolean {
 }
 
 export function enableSessionLog(paths: SessionLogPaths): void {
-  if (!existsSync(paths.dir)) mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
-  if (!existsSync(paths.file)) {
-    // Touch with restrictive perms so cwd/git_branch contents stay
-    // readable only to the owner on shared hosts.
-    const fd = openSync(paths.file, "a", 0o600);
-    closeSync(fd);
+  // `recursive` is idempotent, so no `existsSync` guard is needed.
+  mkdirSync(paths.dir, { recursive: true, mode: 0o700 });
+  // Atomic touch with restrictive perms so cwd/git_branch contents stay
+  // readable only to the owner on shared hosts. `wx` is
+  // `O_CREAT | O_EXCL` — the kernel creates the file or fails with
+  // `EEXIST` (already enabled), collapsing the check-then-create TOCTOU
+  // window (CWE-367) into one syscall.
+  try {
+    closeSync(openSync(paths.file, "wx", 0o600));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
   }
 }
 

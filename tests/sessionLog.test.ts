@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -68,6 +68,24 @@ describe("session log lifecycle", () => {
     const sessions = readSessions(paths);
     expect(sessions.length).toBe(1);
     expect(sessions[0]?.session_id).toBe("default-session");
+  });
+
+  // Regression (ARC-289 / CWE-367): the atomic `wx` touch must set
+  // owner-only perms and must NOT truncate an already-enabled log when
+  // called again (EEXIST no-op, not a re-create).
+  test.skipIf(process.platform === "win32")(
+    "enable creates the log with 0o600 perms",
+    () => {
+      enableSessionLog(paths);
+      expect(statSync(paths.file).mode & 0o777).toBe(0o600);
+    },
+  );
+
+  test("re-enabling an active log preserves existing records", () => {
+    enableSessionLog(paths);
+    appendSessionRecord(paths, record());
+    enableSessionLog(paths); // must be a no-op, not a truncating re-create
+    expect(readSessions(paths).length).toBe(1);
   });
 });
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -78,6 +78,23 @@ describe("ensureConfigFile / deleteConfig", () => {
     writeConfig(paths, { preferApi: true });
     deleteConfig(paths);
     expect(existsSync(paths.file)).toBe(false);
+  });
+
+  // Regression (ARC-289 / CWE-367): the atomic `wx` create must set
+  // owner-only perms and must NOT clobber a file that appears between
+  // the (now-removed) existence check and the create.
+  test.skipIf(process.platform === "win32")(
+    "ensure creates the file with 0o600 perms",
+    () => {
+      ensureConfigFile(paths);
+      expect(statSync(paths.file).mode & 0o777).toBe(0o600);
+    },
+  );
+
+  test("ensure does not clobber a pre-existing file (EEXIST no-op)", () => {
+    writeFileSync(paths.file, '{"preferApi":true}\n');
+    ensureConfigFile(paths); // must be a no-op, not a truncating write
+    expect(readConfig(paths)).toEqual({ preferApi: true });
   });
 });
 
