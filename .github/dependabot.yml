@@ -20,6 +20,31 @@ updates:
           - "@types/bun"
           - "typescript"
 
+  # Isolated Remotion demo project (docs/remotion) — has its own
+  # package.json + package-lock.json, so it needs its own npm entry.
+  # Without this, advisories in remotion/@remotion/* here get no
+  # automated updates (see ARC-279: remotion 4.0.392 shipped 2 Critical
+  # OSV advisories that had to be bumped by hand).
+  - package-ecosystem: "npm"
+    directory: "/docs/remotion"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      remotion:
+        patterns:
+          - "remotion"
+          - "@remotion/*"
+      types:
+        patterns:
+          - "@types/*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
