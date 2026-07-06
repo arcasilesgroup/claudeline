@@ -1,0 +1,106 @@
+name: Deps — bun update
+
+# Native replacement for Dependabot's root npm ecosystem (ARC-304).
+#
+# Dependabot cannot regenerate bun's `bun.lock`, so its npm PRs always failed
+# `bun install --frozen-lockfile`. This workflow runs `bun update` on a branch
+# WE own, regenerating `bun.lock` in the same commit as the manifest bumps, and
+# opens its own PR — which passes the frozen-lockfile gate.
+#
+# Why an App token instead of GITHUB_TOKEN:
+#   PRs opened with the default GITHUB_TOKEN do NOT trigger `on: pull_request`
+#   workflows, so CI would never run on the auto-PR and it could never satisfy
+#   required checks. A scoped, short-lived GitHub App installation token makes
+#   the PR trigger CI normally. Note the security posture is strictly SAFER than
+#   auto-committing back onto Dependabot's own branches (ARC-304 Option 1):
+#   this runs in a trusted scheduled context on our own branch — no untrusted
+#   PR-head checkout, no write token exposed to third-party install scripts
+#   beyond the baseline `bun install` we already run in CI.
+#
+# Gated prerequisites (handled OUTSIDE this file — see ARC-304):
+#   - the org GitHub App installed on this repo with `contents: write` +
+#     `pull_requests: write`;
+#   - `DEPS_BOT_APP_ID` + `DEPS_BOT_APP_PRIVATE_KEY` sealed as Actions secrets.
+# Until those exist the mint step fails fast and no PR is opened (harmless).
+
+on:
+  schedule:
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC — mirrors the retired npm cadence
+  workflow_dispatch: {}
+
+# Least privilege: this workflow never writes with GITHUB_TOKEN. All writes go
+# through the scoped App installation token minted below.
+permissions:
+  contents: read
+
+concurrency:
+  group: deps-bun-update
+  cancel-in-progress: false
+
+jobs:
+  bun-update:
+    name: Regenerate bun.lock and open PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Mint scoped GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.DEPS_BOT_APP_ID }}
+          private-key: ${{ secrets.DEPS_BOT_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: bun update (in-range) — regenerates bun.lock
+        # In-range only: respects the semver ranges in package.json, matching
+        # Dependabot's patch/minor behaviour. Major bumps stay manual
+        # (`bun update --latest`), same as before.
+        run: bun update
+
+      - name: Sanity gates before opening a PR
+        # Prove the regenerated lockfile is internally consistent and the tree
+        # still builds/typechecks. The PR itself re-runs the full CI + Security
+        # suites (bun audit, OSV, tests on 3 OS) as required checks.
+        run: |
+          bun install --frozen-lockfile
+          bun run lint
+          bun test
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: deps/bun-update
+          base: main
+          delete-branch: true
+          sign-commits: true
+          commit-message: "chore(deps): bun update — regenerate bun.lock"
+          title: "chore(deps): weekly bun update (regenerated bun.lock)"
+          labels: dependencies
+          body: |
+            Automated weekly `bun update` (ARC-304).
+
+            Regenerates `bun.lock` in the same commit as the in-range
+            `package.json` bumps, so `bun install --frozen-lockfile` passes —
+            unlike Dependabot's npm PRs, which could not touch bun's lockfile.
+
+            - In-range (patch/minor) updates only. Major bumps stay manual.
+            - CVE detection is unchanged: `bun audit` + OSV run as required
+              checks on this PR.
+            - Trigger on demand any time via the "Deps — bun update" workflow
+              (`workflow_dispatch`).
