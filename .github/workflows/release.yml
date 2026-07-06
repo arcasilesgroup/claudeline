@@ -40,7 +40,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout release source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
           persist-credentials: false
@@ -87,7 +87,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Upload npm-dist artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: npm-dist
           if-no-files-found: error
@@ -157,7 +157,7 @@ jobs:
           - { os: windows-latest, target: bun-windows-x64, asset: claudeline-windows-x64.exe }
     steps:
       - name: Checkout release source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.release.tag_name || github.event.inputs.tag }}
           persist-credentials: false
@@ -174,7 +174,7 @@ jobs:
         run: bun build src/cli.ts --compile --target=${{ matrix.target }} --outfile=dist/${{ matrix.asset }}
 
       - name: Generate build provenance attestation
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: dist/${{ matrix.asset }}
 
