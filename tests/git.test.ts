@@ -1,9 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getGitInfo, isWorktreeGitDir, parseGitStatus } from "../src/git.js";
+
+// These cases shell out to real `git` subprocesses; on Windows runners the
+// Defender-scanned cold spawns jitter past bun's 5000ms default. Give the
+// suite headroom without loosening the fast unit tests elsewhere.
+setDefaultTimeout(20_000);
 
 const isolatedEnv = {
   ...process.env,
