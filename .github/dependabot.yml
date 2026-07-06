@@ -9,7 +9,12 @@ updates:
     labels:
       - "dependencies"
     commit-message:
-      prefix: "chore(deps)"
+      # Bare Conventional-Commit type. `include: scope` appends the dependency
+      # scope, yielding `chore(deps):` / `chore(deps-dev):` — a single valid
+      # scope. A paren-scope here (e.g. `chore(deps)`) would double up to
+      # `chore(deps)(deps-dev):` and fail the "Commit lint (PR title)" gate
+      # (governance.yml). See ARC-297.
+      prefix: "chore"
       include: "scope"
     groups:
       types:
@@ -31,7 +36,9 @@ updates:
     labels:
       - "dependencies"
     commit-message:
-      prefix: "chore(demo)"
+      # Bare type — see note above (ARC-297). `ci`/demo context is carried by
+      # the `dependencies` label + directory, not a paren-scope in the title.
+      prefix: "chore"
       include: "scope"
     groups:
       remotion:
@@ -49,5 +56,7 @@ updates:
       - "dependencies"
       - "ci"
     commit-message:
-      prefix: "chore(actions)"
+      # Bare type — see note above (ARC-297). The `ci` label distinguishes
+      # Actions bumps; the title stays single-scope (`chore(deps):`).
+      prefix: "chore"
       include: "scope"

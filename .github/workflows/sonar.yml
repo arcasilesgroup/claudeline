@@ -7,6 +7,14 @@ name: SonarCloud
 # `SonarCloud` check red, so a broken/unconfigured analysis is never silent.
 # Setup: import the repo on sonarcloud.io and add the SONAR_TOKEN repo secret
 # (see README / docs/RELEASING.md).
+#
+# Exception: Dependabot-authored PRs. GitHub does NOT expose Actions secrets to
+# workflows triggered by dependabot[bot] (they live in a separate Dependabot
+# secrets store), so SONAR_TOKEN is unavoidably empty there and the fail-loud
+# assert produced a guaranteed false red on every dependency bump. The analysis
+# steps below therefore no-op on dependabot[bot] (job still concludes success,
+# so the required `SonarCloud` check is satisfied). Human PRs and pushes keep
+# the original fail-loud behavior. See ARC-297.
 
 on:
   push:
@@ -29,6 +37,9 @@ jobs:
         with:
           egress-policy: audit
       - name: Assert SONAR_TOKEN is configured
+        # Skip on Dependabot: Actions secrets are not available in that context,
+        # so this fail-loud guard would false-positive. See header note.
+        if: github.actor != 'dependabot[bot]'
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
@@ -37,19 +48,24 @@ jobs:
             exit 1
           fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: github.actor != 'dependabot[bot]'
         with:
           # Full history so SonarCloud can assign blame / new-code periods.
           fetch-depth: 0
           persist-credentials: false
       - name: Setup Bun
+        if: github.actor != 'dependabot[bot]'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: latest
       - name: Install dependencies
+        if: github.actor != 'dependabot[bot]'
         run: bun install --frozen-lockfile
       - name: Tests with coverage (lcov)
+        if: github.actor != 'dependabot[bot]'
         run: bun test --coverage --coverage-reporter=lcov
       - name: SonarCloud scan + quality gate
+        if: github.actor != 'dependabot[bot]'
         uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
