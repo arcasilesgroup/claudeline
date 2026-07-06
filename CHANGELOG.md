@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **TOCTOU-hardened config + session-log initialisation (CWE-367).**
+  `ensureConfigFile` (`src/config.ts`) and `enableSessionLog`
+  (`src/sessionLog.ts`) replaced their `existsSync` check-then-`openSync("a")`
+  with a single atomic `openSync(path, "wx", 0o600)` (`O_CREAT | O_EXCL`),
+  closing the check-then-act race a local attacker could exploit by swapping
+  the path between check and open. `ensureConfigFile` now writes `{}` through
+  the file descriptor, never the path. Closes CodeQL alerts #7, #9, #10.
+
 ## [0.4.4] - 2026-05-15
 
 Bug fix for the standalone binaries shipped via Homebrew (and any other
