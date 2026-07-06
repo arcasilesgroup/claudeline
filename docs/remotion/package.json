@@ -12,12 +12,12 @@
     "render:mp4:cli": "remotion render src/index.ts cli ../demo-cli.mp4 --width=1280 --height=680"
   },
   "dependencies": {
-    "@remotion/bundler": "4.0.392",
-    "@remotion/cli": "4.0.392",
-    "@remotion/renderer": "4.0.392",
+    "@remotion/bundler": "4.0.410",
+    "@remotion/cli": "4.0.410",
+    "@remotion/renderer": "4.0.410",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "remotion": "4.0.392"
+    "remotion": "4.0.410"
   },
   "devDependencies": {
     "@types/react": "19.0.1",

@@ -26,6 +26,25 @@ updates:
           - "@types/bun"
           - "typescript"
 
+  # Demo/docs Remotion project — isolated npm lockfile not covered by "/".
+  # Added in ARC-288 so future remotion-family CVE bumps auto-generate.
+  - package-ecosystem: "npm"
+    directory: "/docs/remotion"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(demo)"
+      include: "scope"
+    groups:
+      remotion:
+        patterns:
+          - "remotion"
+          - "@remotion/*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
