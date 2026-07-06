@@ -1,7 +1,14 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+
+// Every case here spawns a fresh `node dist/cli.js` subprocess. On Windows
+// runners each spawn is scanned by Defender, so cold-start latency jitters
+// well past bun's 5000ms default and occasionally trips a spurious timeout
+// (observed 5258ms on the first full render). Give this subprocess-integration
+// suite headroom without loosening the fast unit tests in other files.
+setDefaultTimeout(20_000);
 
 const root = join(import.meta.dirname, "..");
 const dist = join(root, "dist", "cli.js");

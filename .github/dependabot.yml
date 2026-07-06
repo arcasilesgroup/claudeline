@@ -8,12 +8,13 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+    # Prefix is a bare Conventional-Commit type (no scope). `include: scope`
+    # appends dependabot's own dependency scope -> "chore(deps): ..." /
+    # "chore(deps-dev): ...", which is single-scope and passes the
+    # "Commit lint (PR title)" required check. The previous prefix
+    # "chore(deps)" produced double-scope titles ("chore(deps)(deps-dev): ...")
+    # that fail the Conventional-Commit regex and blocked every PR. (ARC-276)
     commit-message:
-      # Bare Conventional-Commit type. `include: scope` appends the dependency
-      # scope, yielding `chore(deps):` / `chore(deps-dev):` — a single valid
-      # scope. A paren-scope here (e.g. `chore(deps)`) would double up to
-      # `chore(deps)(deps-dev):` and fail the "Commit lint (PR title)" gate
-      # (governance.yml). See ARC-297.
       prefix: "chore"
       include: "scope"
     groups:
@@ -55,8 +56,14 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    # Same single-scope fix: "chore(actions)" produced double-scope titles
+    # ("chore(actions)(deps): ...") that failed commit-lint. (ARC-276)
     commit-message:
-      # Bare type — see note above (ARC-297). The `ci` label distinguishes
-      # Actions bumps; the title stays single-scope (`chore(deps):`).
       prefix: "chore"
       include: "scope"
+    # Group all GitHub Actions bumps into a single weekly PR so the backlog
+    # stays drainable via auto-merge instead of accumulating one-per-action.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
