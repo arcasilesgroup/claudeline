@@ -37,7 +37,9 @@ updates:
     labels:
       - "dependencies"
     commit-message:
-      prefix: "chore(demo)"
+      # Bare type — see note above (ARC-297). `ci`/demo context is carried by
+      # the `dependencies` label + directory, not a paren-scope in the title.
+      prefix: "chore"
       include: "scope"
     groups:
       remotion:
