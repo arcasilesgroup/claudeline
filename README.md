@@ -24,7 +24,7 @@ TypeScript, single binary, zero config.
 ## Features
 
 - **Model + context %** — colored by usage threshold (green → orange → yellow → red)
-- **Cost per session** — `💸 $X.XX` from Claude Code's authoritative server-side total, with a token×pricing fallback for older runtimes
+- **Cost per session** — `💸 $X.XX` recomputed from `current_usage` tokens × the live per-provider price (OpenRouter for open/BYO models, models.dev/LiteLLM for Claude), with the server-reported `cost.total_cost_usd` as a fallback when token counts are unavailable
 - **Working directory + git** — branch, dirty flag, worktree marker (`⎇:branch`), optional `⚡` for `--dangerously-skip-permissions`
 - **Session duration** — elapsed since session start
 - **Effort indicator** — distinct glyphs for `max`, `xhigh`, `high`, `medium`, `low`
@@ -46,7 +46,7 @@ There's an excellent bash statusline by [@kamranahmedse](https://github.com/kamr
 | --- | --- | --- |
 | **macOS, Linux** | ✅ | ✅ |
 | **Windows** | ✅ (npm shim + native binary) | ❌ requires bash + jq + curl |
-| **Cost source** | server-side `cost.total_cost_usd` from Claude Code (truth) | derived from token math (drifts from reality) |
+| **Cost source** | recomputed from `current_usage` × live per-provider price (OpenRouter + models.dev/LiteLLM), server total as fallback | derived from token math (drifts from reality) |
 | **Rate-limit projection** | `~38m` at current burn rate | not present |
 | **Latency badge** | yes, with yellow/red thresholds | not present |
 | **Worktree-aware git** | `⎇:branch` | branch-only |
@@ -129,7 +129,7 @@ The first line is composed of these segments, separated by `│`:
 | Model      | `model.display_name` from stdin                     |
 | Context %  | `context_window` (tokens / size or used_percentage) |
 | Directory  | `cwd` basename + git branch + dirty flag + worktree |
-| Cost       | `current_usage` tokens × Anthropic price for `model.id` |
+| Cost       | `current_usage` tokens × live per-provider price for `model.id` (OpenRouter open/BYO · models.dev/LiteLLM Claude); `cost.total_cost_usd` fallback |
 | Session    | elapsed since `session.start_time`                  |
 | Effort     | `effort.level` from stdin, fallback `effortLevel`   |
 | Thinking   | `thinking.enabled`, fallback `alwaysThinkingEnabled`|

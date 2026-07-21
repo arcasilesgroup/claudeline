@@ -16,10 +16,12 @@ import snapshot from "./pricing.snapshot.json" with { type: "json" };
 // model ids and silently misprice them. The Haiku 3.5 rows also come
 // before the `haiku` catch-all because Haiku 3.5 is cheaper than 4.x.
 //
-// `cacheCreation` covers ephemeral 5-minute cache writes; `cacheRead`
-// is the cached-read price. The catch-all aliases at the bottom of the
-// snapshot exist purely for `display_name` fallback (e.g. "Opus 4.7")
-// when `model.id` is absent.
+// `cacheCreation` covers ephemeral 5-minute cache writes, priced at
+// 1.25x input for every current family (Sonnet, Opus, and Haiku — each
+// row in the snapshot is 1.25x its own input). `cacheRead` is the
+// cached-read price (10% of input). The catch-all aliases at the bottom
+// of the snapshot exist purely for `display_name` fallback (e.g.
+// "Opus 4.7") when `model.id` is absent.
 const TABLE: readonly { match: string; pricing: ModelPricing }[] =
   snapshot.table;
 

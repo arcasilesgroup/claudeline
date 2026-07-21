@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Live, multi-provider pricing replaces the static Claude-only table.**
+  Cost is now recomputed from `context_window.current_usage.*` tokens against a
+  live price registry — OpenRouter for open/BYO models and models.dev/LiteLLM
+  for Claude on direct billing — with a bundled snapshot as fallback. Unknown
+  or non-Anthropic models now show a recomputed cost (or an explicit "no price")
+  instead of silently hiding; Anthropic prices are sourced live rather than
+  frozen at the April 2026 snapshot. `cost.total_cost_usd` is now a fallback,
+  not the primary source. No compatibility shim (CONSTITUTION §3): the prior
+  behavior of hiding cost for unknown models is removed.
+
 ### Security
 
 - **TOCTOU-hardened config + session-log initialisation (CWE-367).**
