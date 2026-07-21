@@ -44,7 +44,11 @@ describe("renderStatusline", () => {
     const out = await renderStatusline(
       { cwd: "/p/repo" },
       mockDeps({
-        getGitInfo: () => ({ branch: "feature/x", dirty: true, worktree: false }),
+        getGitInfo: () => ({
+          branch: "feature/x",
+          dirty: true,
+          worktree: false,
+        }),
       }),
     );
     expect(stripAnsi(out)).toContain("repo (feature/x*)");
@@ -531,8 +535,8 @@ describe("renderStatuslineData (--json output)", () => {
     expect(data.model.display_name).toBe("Claude Sonnet 4.6");
     expect(data.session.id).toBe("abc123");
     expect(data.session.elapsed_seconds).toBeGreaterThan(0);
-    expect(data.cost.total_usd).toBe(1.42);
-    expect(data.cost.source).toBe("server");
+    expect(data.cost.total_usd).toBe(0.0062);
+    expect(data.cost.source).toBe("estimated");
     expect(data.context.used_percentage).toBe(25);
     expect(data.context.window_size).toBe(200_000);
     expect(data.context.tokens.input).toBe(1000);

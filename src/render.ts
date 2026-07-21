@@ -187,9 +187,10 @@ export async function renderStatuslineData(
   // the single `computeCost` (cache-aware, 1M-tier-aware); the JSON path
   // just maps the {dollars, source} result and preserves toFixed(4)
   // rounding here at the boundary.
+  const resolvedForJson = resolvePrice(input.model?.id);
   const costResult = computeCost(
-    buildCostInput(input),
-    resolvePrice(input.model?.id)?.pricing,
+    buildCostInput(input, resolvedForJson?.provider === "anthropic"),
+    resolvedForJson?.pricing,
   );
   const costSource: StatuslineData["cost"]["source"] =
     costResult?.source ?? null;
@@ -304,9 +305,10 @@ export async function renderStatusline(
     ),
   ];
 
+  const resolvedForCost = resolvePrice(input.model?.id);
   const cost = costSegment(
-    buildCostInput(input),
-    resolvePrice(input.model?.id)?.pricing,
+    buildCostInput(input, resolvedForCost?.provider === "anthropic"),
+    resolvedForCost?.pricing,
     glyphs,
   );
   if (cost) line1Parts.push(cost);
@@ -393,7 +395,10 @@ function buildContextInput(input: StatuslineInput) {
   return result;
 }
 
-function buildCostInput(input: StatuslineInput) {
+function buildCostInput(
+  input: StatuslineInput,
+  isAnthropic?: boolean | undefined,
+) {
   const usage = input.context_window?.current_usage;
   return {
     totalCostUsd: input.cost?.total_cost_usd ?? undefined,
@@ -402,6 +407,10 @@ function buildCostInput(input: StatuslineInput) {
     cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
     cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
+    // Distinguish "usage present" from "zero tokens" so the server cost is
+    // used strictly as a null-usage fallback (spec-001 Decision 3).
+    hasUsage: usage != null,
+    isAnthropic,
     contextWindowSize: input.context_window?.context_window_size ?? undefined,
     exceeds200k: input.exceeds_200k_tokens === true,
   };

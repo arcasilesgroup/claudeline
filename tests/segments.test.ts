@@ -300,6 +300,7 @@ describe("costSegment", () => {
     const out = costSegment(
       {
         modelId: "claude-sonnet",
+        hasUsage: true,
         inputTokens: 500_000,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -316,6 +317,7 @@ describe("costSegment", () => {
     const out = costSegment(
       {
         modelId: "claude-sonnet",
+        hasUsage: true,
         inputTokens: 1000,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -346,26 +348,33 @@ describe("costSegment", () => {
     ).toBe("");
   });
 
-  test("prefers totalCostUsd over local computation", () => {
+  test("recompute from usage wins over server cost when usage present", () => {
+    // spec-001 Decision 3: current_usage × price is primary; the server
+    // total is not used when usage is present.
     const out = costSegment(
       {
         totalCostUsd: 225.7886,
         modelId: "claude-sonnet",
-        inputTokens: 1000,
+        hasUsage: true,
+        isAnthropic: true,
+        inputTokens: 500_000,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
-        outputTokens: 100,
+        outputTokens: 50_000,
       },
       sonnetPricing,
       emoji,
     );
-    expect(stripAnsi(out)).toBe("💸 $225.79");
+    // 0.5M*$3 + 0.05M*$15 = $2.25 (recompute), not the $225.79 server total
+    expect(stripAnsi(out)).toBe("💸 $2.25");
   });
 
-  test("falls back to local pricing when totalCostUsd absent", () => {
+  test("recomputes from usage when totalCostUsd absent", () => {
     const out = costSegment(
       {
         modelId: "claude-sonnet",
+        hasUsage: true,
+        isAnthropic: true,
         inputTokens: 500_000,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -378,11 +387,13 @@ describe("costSegment", () => {
     expect(stripAnsi(out)).toBe("💸 $2.25");
   });
 
-  test("renders even when no pricing if totalCostUsd is supplied", () => {
+  test("uses server cost as fallback when usage is null (Anthropic)", () => {
     const out = costSegment(
       {
         totalCostUsd: 10.5,
-        modelId: "unknown-model",
+        modelId: "claude-sonnet",
+        hasUsage: false,
+        isAnthropic: true,
         inputTokens: 0,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -392,6 +403,25 @@ describe("costSegment", () => {
       emoji,
     );
     expect(stripAnsi(out)).toBe("💸 $10.50");
+  });
+
+  test("ignores server cost for non-Anthropic models", () => {
+    // Non-Anthropic total_cost_usd prices against Anthropic rates -> wrong.
+    const out = costSegment(
+      {
+        totalCostUsd: 10.5,
+        modelId: "gpt-4o",
+        hasUsage: false,
+        isAnthropic: false,
+        inputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+      },
+      undefined,
+      emoji,
+    );
+    expect(out).toBe("");
   });
 });
 
@@ -405,6 +435,7 @@ describe("computeCost", () => {
 
   const base = {
     modelId: "x",
+    hasUsage: true,
     inputTokens: 1_000_000,
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
@@ -440,13 +471,49 @@ describe("computeCost", () => {
     });
   });
 
-  test("server cost is authoritative and never re-surcharged", () => {
+  test("recompute wins over server cost even at 1M tier", () => {
     expect(
       computeCost(
         { ...base, totalCostUsd: 10, contextWindowSize: 1_000_000 },
         price,
       ),
+    ).toEqual({ dollars: 3 * LONG_CONTEXT_MULTIPLIER, source: "estimated" });
+  });
+
+  test("server cost used as fallback only for Anthropic with null usage", () => {
+    expect(
+      computeCost(
+        {
+          modelId: "claude-opus-4-7",
+          hasUsage: false,
+          isAnthropic: true,
+          inputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          totalCostUsd: 10,
+        },
+        price,
+      ),
     ).toEqual({ dollars: 10, source: "server" });
+  });
+
+  test("non-Anthropic server cost is never used", () => {
+    expect(
+      computeCost(
+        {
+          modelId: "gpt-4o",
+          hasUsage: false,
+          isAnthropic: false,
+          inputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          totalCostUsd: 10,
+        },
+        price,
+      ),
+    ).toBeNull();
   });
 
   test("returns null with no price and no server cost", () => {

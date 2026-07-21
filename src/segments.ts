@@ -128,16 +128,23 @@ export function thinkingSegment(
 }
 
 export interface CostInput {
-  // Authoritative cumulative session cost from Claude Code, when present.
-  // Always preferred — it's the server-side number that Anthropic uses
-  // for billing. Falling back to `current_usage` × pricing under-reports
-  // because `current_usage` is the last-turn delta, not the session sum.
+  // Server-reported cost from Claude Code (`cost.total_cost_usd`). Demoted
+  // to a FALLBACK (spec-001 Decision 3): used only when `current_usage` is
+  // null (pre-first-call, post-`/compact`) AND the model is Anthropic. For
+  // non-Anthropic models it prices against Anthropic rates and is ignored.
   totalCostUsd?: number | null | undefined;
   modelId: string | null | undefined;
   inputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
   outputTokens: number;
+  // Whether the payload carried `current_usage` this turn. When true, the
+  // recomputed token cost is the primary display; when false, the server
+  // cost is the only fallback. Distinguishes absent usage from zero tokens.
+  hasUsage?: boolean | undefined;
+  // Provider tag from the resolver. When false (non-Anthropic), the server
+  // cost is never used — only the locally recomputed cost is trustworthy.
+  isAnthropic?: boolean | undefined;
   // Reported context window for this turn. When 1_000_000 the recomputed
   // (estimated) cost gets the long-context surcharge; the 200_000 default
   // is priced at base rates.
@@ -169,20 +176,34 @@ export function computeCost(
   input: CostInput,
   price: ModelPricing | undefined,
 ): CostResult | null {
-  if (typeof input.totalCostUsd === "number" && input.totalCostUsd >= 0) {
+  // Recompute from the reported tokens is PRIMARY (spec-001 Decision 3):
+  // the tokens the provider actually reported × the live price for the
+  // running model. Only attempted when usage was present this turn.
+  if (price && input.hasUsage === true) {
+    let dollars =
+      (input.inputTokens / 1_000_000) * price.input +
+      (input.cacheCreationTokens / 1_000_000) * price.cacheCreation +
+      (input.cacheReadTokens / 1_000_000) * price.cacheRead +
+      (input.outputTokens / 1_000_000) * price.output;
+    if (input.contextWindowSize === 1_000_000 || input.exceeds200k === true) {
+      dollars *= LONG_CONTEXT_MULTIPLIER;
+    }
+    if (Number.isFinite(dollars) && dollars > 0) {
+      return { dollars, source: "estimated" };
+    }
+  }
+  // Server cost is the FALLBACK, used only when usage is null (pre-first-
+  // call, post-`/compact`) and the model is Anthropic. Non-Anthropic server
+  // cost prices against Anthropic rates, so it is never used.
+  if (
+    input.hasUsage !== true &&
+    input.isAnthropic !== false &&
+    typeof input.totalCostUsd === "number" &&
+    input.totalCostUsd >= 0
+  ) {
     return { dollars: input.totalCostUsd, source: "server" };
   }
-  if (!price) return null;
-  let dollars =
-    (input.inputTokens / 1_000_000) * price.input +
-    (input.cacheCreationTokens / 1_000_000) * price.cacheCreation +
-    (input.cacheReadTokens / 1_000_000) * price.cacheRead +
-    (input.outputTokens / 1_000_000) * price.output;
-  if (input.contextWindowSize === 1_000_000 || input.exceeds200k === true) {
-    dollars *= LONG_CONTEXT_MULTIPLIER;
-  }
-  if (!Number.isFinite(dollars) || dollars <= 0) return null;
-  return { dollars, source: "estimated" };
+  return null;
 }
 
 export function costSegment(
