@@ -219,14 +219,10 @@ describe("effortSegment", () => {
     expect(stripAnsi(effortSegment("xhigh", emoji))).toBe("◉ xhigh");
   });
 
-  test("ultra renders as 'ultracode' with ◉ magenta", () => {
-    const out = effortSegment("ultra", emoji);
-    expect(stripAnsi(out)).toBe("◉ ultracode");
-    expect(out).toContain(palette.magenta);
-  });
-
-  test("ultra emits ASCII tokens in plain mode", () => {
-    expect(stripAnsi(effortSegment("ultra", plain))).toBe("++ ultracode");
+  test("ultra is not special-cased; falls back like any unknown level", () => {
+    // Decision 6: no special-casing of "ultracode"; ultracode surfaces as
+    // xhigh. An unrecognized level simply falls back, it is never relabelled.
+    expect(stripAnsi(effortSegment("ultra", emoji))).toBe("◑ ultra");
   });
 
   test("high uses ● magenta", () => {

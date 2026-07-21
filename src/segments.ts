@@ -94,16 +94,9 @@ interface EffortConfig {
     "effortMax" | "effortHigh" | "effortMedium" | "effortLow"
   >;
   emphasis: "magenta" | "dim";
-  // Override the displayed text. Defaults to the raw level when absent.
-  // Used for "ultra", whose user-facing name in `/effort` is "ultracode"
-  // (the stdin field reports the stored value, not the display label).
-  label?: string;
 }
 
 const EFFORT_TABLE: Record<string, EffortConfig> = {
-  // "ultra" == ultracode in `/effort`. Highest effort, so it shares the
-  // filled max glyph + magenta emphasis but renders as "ultracode".
-  ultra: { slot: "effortMax", emphasis: "magenta", label: "ultracode" },
   max: { slot: "effortMax", emphasis: "magenta" },
   xhigh: { slot: "effortMax", emphasis: "magenta" },
   high: { slot: "effortHigh", emphasis: "magenta" },
@@ -123,7 +116,7 @@ export function effortSegment(
   if (!level) return "";
   const config = EFFORT_TABLE[level] ?? FALLBACK_EFFORT;
   const prefix = config.emphasis === "magenta" ? palette.magenta : style.dim;
-  return `${prefix}${glyphs[config.slot]} ${config.label ?? level}${RESET}`;
+  return `${prefix}${glyphs[config.slot]} ${level}${RESET}`;
 }
 
 export function thinkingSegment(
