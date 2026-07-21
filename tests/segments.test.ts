@@ -39,6 +39,7 @@ describe("contextSegment", () => {
     const out = contextSegment(
       {
         windowSize: 200_000,
+        hasUsage: true,
         inputTokens: 50_000,
         cacheCreationTokens: 0,
         cacheReadTokens: 50_000,
@@ -66,6 +67,7 @@ describe("contextSegment", () => {
     const out = contextSegment(
       {
         windowSize: 0,
+        hasUsage: true,
         inputTokens: 100,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -80,6 +82,7 @@ describe("contextSegment", () => {
       contextSegment(
         {
           windowSize: 100,
+          hasUsage: true,
           inputTokens: 95,
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
@@ -93,6 +96,7 @@ describe("contextSegment", () => {
     const out = contextSegment(
       {
         windowSize: 100,
+        hasUsage: true,
         inputTokens: 50,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -628,6 +632,7 @@ describe("RESET handling", () => {
       contextSegment(
         {
           windowSize: 1000,
+          hasUsage: true,
           inputTokens: 100,
           cacheCreationTokens: 0,
           cacheReadTokens: 0,

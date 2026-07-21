@@ -290,9 +290,10 @@ export async function renderStatusline(
   const glyphs = deps.glyphs;
   const separator = ` ${style.dim}${glyphs.separator}${RESET} `;
 
-  const line1Parts: string[] = [
-    modelSegment(input.model?.display_name),
-    contextSegment(buildContextInput(input), glyphs),
+  const line1Parts: string[] = [modelSegment(input.model?.display_name)];
+  const contextStr = contextSegment(buildContextInput(input), glyphs);
+  if (contextStr) line1Parts.push(contextStr);
+  line1Parts.push(
     directorySegment(
       {
         cwd: cwd ?? "",
@@ -303,7 +304,7 @@ export async function renderStatusline(
       },
       glyphs,
     ),
-  ];
+  );
 
   const resolvedForCost = resolvePrice(input.model?.id);
   const cost = costSegment(
@@ -383,11 +384,13 @@ function buildContextInput(input: StatuslineInput) {
     cacheCreationTokens: number;
     cacheReadTokens: number;
     usedPercentage?: number;
+    hasUsage?: boolean;
   } = {
     windowSize: cw?.context_window_size ?? DEFAULT_CONTEXT_WINDOW,
     inputTokens: usage?.input_tokens ?? 0,
     cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
     cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
+    hasUsage: usage != null,
   };
   if (typeof cw?.used_percentage === "number") {
     result.usedPercentage = cw.used_percentage;

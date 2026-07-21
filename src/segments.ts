@@ -29,9 +29,18 @@ export interface ContextInput {
   cacheCreationTokens: number;
   cacheReadTokens: number;
   usedPercentage?: number;
+  // Whether the payload carried `current_usage` this turn. When false
+  // (pre-first-call, post-`/compact`) there is nothing to render and the
+  // segment stays empty rather than a misleading " 0%".
+  hasUsage?: boolean;
 }
 
 export function contextSegment(input: ContextInput, glyphs: GlyphSet): string {
+  // Nothing to show before the first API call or after /compact: no usage
+  // and no context_window percentage. Stay empty (no misleading " 0%").
+  if (input.hasUsage !== true && typeof input.usedPercentage !== "number") {
+    return "";
+  }
   let pct: number;
   if (typeof input.usedPercentage === "number") {
     pct = Math.round(input.usedPercentage);

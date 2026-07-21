@@ -466,6 +466,15 @@ describe("renderStatusline", () => {
     const out = await renderStatusline(
       {
         cwd: "/p",
+        context_window: {
+          context_window_size: 200_000,
+          current_usage: {
+            input_tokens: 100_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 0,
+          },
+        },
         rate_limits: {
           five_hour: { used_percentage: 50, resets_at: "2026-04-26T22:30:00Z" },
         },
