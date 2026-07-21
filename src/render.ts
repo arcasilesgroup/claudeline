@@ -2,7 +2,7 @@ import type { FetchUsageResult } from "./api.js";
 import { RESET, style } from "./ansi.js";
 import type { GitInfo } from "./git.js";
 import type { GlyphSet } from "./glyphs.js";
-import { pricingFor } from "./pricing.js";
+import { resolvePrice } from "./pricingSource.js";
 import type { Settings, StatuslineInput, UsageApiResponse } from "./schemas.js";
 import {
   type LatencySummary,
@@ -189,7 +189,7 @@ export async function renderStatuslineData(
   // rounding here at the boundary.
   const costResult = computeCost(
     buildCostInput(input),
-    pricingFor(input.model?.id),
+    resolvePrice(input.model?.id)?.pricing,
   );
   const costSource: StatuslineData["cost"]["source"] =
     costResult?.source ?? null;
@@ -306,7 +306,7 @@ export async function renderStatusline(
 
   const cost = costSegment(
     buildCostInput(input),
-    pricingFor(input.model?.id),
+    resolvePrice(input.model?.id)?.pricing,
     glyphs,
   );
   if (cost) line1Parts.push(cost);
