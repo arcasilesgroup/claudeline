@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { palette, RESET, style } from "../src/ansi.js";
 import { glyphsFor } from "../src/glyphs.js";
 import {
+  LONG_CONTEXT_MULTIPLIER,
+  computeCost,
   contextSegment,
   costSegment,
   directorySegment,
@@ -103,9 +105,9 @@ describe("contextSegment", () => {
 
 describe("directorySegment", () => {
   test("renders basename", () => {
-    expect(
-      stripAnsi(directorySegment({ cwd: "/foo/bar/baz" }, emoji)),
-    ).toBe("baz");
+    expect(stripAnsi(directorySegment({ cwd: "/foo/bar/baz" }, emoji))).toBe(
+      "baz",
+    );
   });
 
   test("includes branch and dirty flag", () => {
@@ -140,23 +142,18 @@ describe("directorySegment", () => {
 
   test("Windows backslash path uses last segment", () => {
     expect(
-      stripAnsi(
-        directorySegment({ cwd: "C:\\Users\\x\\repo" }, emoji),
-      ),
+      stripAnsi(directorySegment({ cwd: "C:\\Users\\x\\repo" }, emoji)),
     ).toBe("repo");
   });
 
   test("trailing slash trimmed", () => {
-    expect(
-      stripAnsi(directorySegment({ cwd: "/foo/bar/" }, emoji)),
-    ).toBe("bar");
+    expect(stripAnsi(directorySegment({ cwd: "/foo/bar/" }, emoji))).toBe(
+      "bar",
+    );
   });
 
   test("strips ANSI/control characters from cwd", () => {
-    const out = directorySegment(
-      { cwd: "/foo/\x1b]0;PWNED\x07bar" },
-      emoji,
-    );
+    const out = directorySegment({ cwd: "/foo/\x1b]0;PWNED\x07bar" }, emoji);
     const stripped = stripAnsi(out);
     expect(stripped).not.toContain("\x07");
     expect(stripped).not.toContain("\x1b");
@@ -220,6 +217,16 @@ describe("effortSegment", () => {
 
   test("xhigh uses ◉ magenta", () => {
     expect(stripAnsi(effortSegment("xhigh", emoji))).toBe("◉ xhigh");
+  });
+
+  test("ultra renders as 'ultracode' with ◉ magenta", () => {
+    const out = effortSegment("ultra", emoji);
+    expect(stripAnsi(out)).toBe("◉ ultracode");
+    expect(out).toContain(palette.magenta);
+  });
+
+  test("ultra emits ASCII tokens in plain mode", () => {
+    expect(stripAnsi(effortSegment("ultra", plain))).toBe("++ ultracode");
   });
 
   test("high uses ● magenta", () => {
@@ -392,6 +399,80 @@ describe("costSegment", () => {
   });
 });
 
+describe("computeCost", () => {
+  const price = {
+    input: 3,
+    cacheCreation: 3.75,
+    cacheRead: 0.3,
+    output: 15,
+  };
+
+  const base = {
+    modelId: "x",
+    inputTokens: 1_000_000,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    outputTokens: 0,
+  };
+
+  test("no surcharge at the 200k default context", () => {
+    expect(computeCost({ ...base, contextWindowSize: 200_000 }, price)).toEqual(
+      {
+        dollars: 3,
+        source: "estimated",
+      },
+    );
+  });
+
+  test("applies the 1M-context surcharge at 1_000_000", () => {
+    const result = computeCost(
+      { ...base, contextWindowSize: 1_000_000 },
+      price,
+    );
+    expect(result?.dollars).toBeGreaterThan(3);
+    expect(result).toEqual({
+      dollars: 3 * LONG_CONTEXT_MULTIPLIER,
+      source: "estimated",
+    });
+  });
+
+  test("applies the surcharge when exceeds200k is true (window absent)", () => {
+    const result = computeCost({ ...base, exceeds200k: true }, price);
+    expect(result).toEqual({
+      dollars: 3 * LONG_CONTEXT_MULTIPLIER,
+      source: "estimated",
+    });
+  });
+
+  test("server cost is authoritative and never re-surcharged", () => {
+    expect(
+      computeCost(
+        { ...base, totalCostUsd: 10, contextWindowSize: 1_000_000 },
+        price,
+      ),
+    ).toEqual({ dollars: 10, source: "server" });
+  });
+
+  test("returns null with no price and no server cost", () => {
+    expect(computeCost(base, undefined)).toBeNull();
+  });
+
+  test("returns null when the estimate is zero", () => {
+    expect(
+      computeCost(
+        {
+          modelId: "x",
+          inputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+        },
+        price,
+      ),
+    ).toBeNull();
+  });
+});
+
 describe("latencySegment", () => {
   test("returns empty under threshold", () => {
     expect(latencySegment(500, emoji)).toBe("");
@@ -413,7 +494,8 @@ describe("latencySegment", () => {
     expect(stripAnsi(latencySegment(2000, plain))).toBe("lat: 2000ms");
   });
 
-  test("renders at exactly 1000ms (boundary inclusive)", () => {  // anchor
+  test("renders at exactly 1000ms (boundary inclusive)", () => {
+    // anchor
     expect(stripAnsi(latencySegment(1000, emoji))).toBe("🐢 1000ms");
   });
 
@@ -433,7 +515,9 @@ describe("latencySegment", () => {
 
   test("plain mode renders summary parenthetical", () => {
     expect(
-      stripAnsi(latencySegment(2000, plain, undefined, { p50: 700, p99: 2500 })),
+      stripAnsi(
+        latencySegment(2000, plain, undefined, { p50: 700, p99: 2500 }),
+      ),
     ).toBe("lat: 2000ms (p50:700/p99:2500)");
   });
 

@@ -4,7 +4,8 @@ import type { GlyphSet } from "./glyphs.js";
 // Strip C0/C1 control characters from any text we reflect from stdin
 // (model.display_name, cwd, gitBranch). Defends against escape-sequence
 // injection (terminal title spoofing, OSC-8 hyperlinks, screen wipes).
-const stripControl = (s: string): string => s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+const stripControl = (s: string): string =>
+  s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 
 // Splits on both POSIX `/` and Windows `\` so the segment renders
 // the basename regardless of the host that produced the cwd string.
@@ -15,7 +16,10 @@ function basenameCrossPlatform(p: string): string {
 }
 
 export function modelSegment(displayName: string | null | undefined): string {
-  const safe = displayName && displayName.trim() !== "" ? stripControl(displayName) : "Claude";
+  const safe =
+    displayName && displayName.trim() !== ""
+      ? stripControl(displayName)
+      : "Claude";
   return paint(safe, palette.blue);
 }
 
@@ -85,11 +89,21 @@ export function sessionSegment(
 }
 
 interface EffortConfig {
-  slot: keyof Pick<GlyphSet, "effortMax" | "effortHigh" | "effortMedium" | "effortLow">;
+  slot: keyof Pick<
+    GlyphSet,
+    "effortMax" | "effortHigh" | "effortMedium" | "effortLow"
+  >;
   emphasis: "magenta" | "dim";
+  // Override the displayed text. Defaults to the raw level when absent.
+  // Used for "ultra", whose user-facing name in `/effort` is "ultracode"
+  // (the stdin field reports the stored value, not the display label).
+  label?: string;
 }
 
 const EFFORT_TABLE: Record<string, EffortConfig> = {
+  // "ultra" == ultracode in `/effort`. Highest effort, so it shares the
+  // filled max glyph + magenta emphasis but renders as "ultracode".
+  ultra: { slot: "effortMax", emphasis: "magenta", label: "ultracode" },
   max: { slot: "effortMax", emphasis: "magenta" },
   xhigh: { slot: "effortMax", emphasis: "magenta" },
   high: { slot: "effortHigh", emphasis: "magenta" },
@@ -109,7 +123,7 @@ export function effortSegment(
   if (!level) return "";
   const config = EFFORT_TABLE[level] ?? FALLBACK_EFFORT;
   const prefix = config.emphasis === "magenta" ? palette.magenta : style.dim;
-  return `${prefix}${glyphs[config.slot]} ${level}${RESET}`;
+  return `${prefix}${glyphs[config.slot]} ${config.label ?? level}${RESET}`;
 }
 
 export function thinkingSegment(
@@ -131,6 +145,51 @@ export interface CostInput {
   cacheCreationTokens: number;
   cacheReadTokens: number;
   outputTokens: number;
+  // Reported context window for this turn. When 1_000_000 the recomputed
+  // (estimated) cost gets the long-context surcharge; the 200_000 default
+  // is priced at base rates.
+  contextWindowSize?: number | undefined;
+  // Top-level `exceeds_200k_tokens` flag — an alternate 1M-tier signal
+  // used when the window size itself isn't reported.
+  exceeds200k?: boolean | undefined;
+}
+
+// Long-context (1M) surcharge applied to the LOCALLY-RECOMPUTED cost only.
+// Anthropic prices prompts beyond the 200K tier at a premium (Sonnet 4:
+// input 2× at $6/MTok). sub-003 wires the tier hook with a single flat
+// constant; per-field long-context rates belong to the pricing-source
+// sub-spec. Server-reported cost is authoritative and never re-surcharged.
+export const LONG_CONTEXT_MULTIPLIER = 2;
+
+export interface CostResult {
+  dollars: number;
+  // "server" when Claude Code provided cost.total_cost_usd directly;
+  // "estimated" when computed from token counts × pricing.
+  source: "server" | "estimated";
+}
+
+// Single source of cost math shared by the ANSI (`costSegment`) and JSON
+// (`renderStatuslineData`) render paths (§10.4 DRY). Cache read/write are
+// already distinct line items on the price row; the 1M-tier surcharge is
+// applied to the estimated branch only.
+export function computeCost(
+  input: CostInput,
+  price: ModelPricing | undefined,
+): CostResult | null {
+  if (typeof input.totalCostUsd === "number" && input.totalCostUsd >= 0) {
+    return { dollars: input.totalCostUsd, source: "server" };
+  }
+  if (!price) return null;
+  let dollars =
+    (input.inputTokens / 1_000_000) * price.input +
+    (input.cacheCreationTokens / 1_000_000) * price.cacheCreation +
+    (input.cacheReadTokens / 1_000_000) * price.cacheRead +
+    (input.outputTokens / 1_000_000) * price.output;
+  if (input.contextWindowSize === 1_000_000 || input.exceeds200k === true) {
+    dollars *= LONG_CONTEXT_MULTIPLIER;
+  }
+  if (!Number.isFinite(dollars) || dollars <= 0) return null;
+  return { dollars, source: "estimated" };
 }
 
 export function costSegment(
@@ -138,20 +197,9 @@ export function costSegment(
   pricePerMillionTokens: ModelPricing | undefined,
   glyphs: GlyphSet,
 ): string {
-  let dollars: number;
-  if (typeof input.totalCostUsd === "number" && input.totalCostUsd >= 0) {
-    dollars = input.totalCostUsd;
-  } else if (pricePerMillionTokens) {
-    dollars =
-      (input.inputTokens / 1_000_000) * pricePerMillionTokens.input +
-      (input.cacheCreationTokens / 1_000_000) *
-        pricePerMillionTokens.cacheCreation +
-      (input.cacheReadTokens / 1_000_000) * pricePerMillionTokens.cacheRead +
-      (input.outputTokens / 1_000_000) * pricePerMillionTokens.output;
-  } else {
-    return "";
-  }
-  if (dollars <= 0) return "";
+  const result = computeCost(input, pricePerMillionTokens);
+  if (!result || result.dollars <= 0) return "";
+  const dollars = result.dollars;
   const formatted = dollars >= 1 ? dollars.toFixed(2) : dollars.toFixed(3);
   return `${glyphs.cost} ${palette.yellow}$${formatted}${RESET}`;
 }

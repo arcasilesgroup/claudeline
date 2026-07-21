@@ -6,6 +6,7 @@ import { pricingFor } from "./pricing.js";
 import type { Settings, StatuslineInput, UsageApiResponse } from "./schemas.js";
 import {
   type LatencySummary,
+  computeCost,
   contextSegment,
   costSegment,
   directorySegment,
@@ -182,31 +183,19 @@ export async function renderStatuslineData(
     deps,
   );
 
-  // Cost source: server beats local estimation. If the input carries a
-  // server-side cost we treat it as authoritative; otherwise we attempt
-  // a best-effort estimate from tokens × pricing for `model.id`.
-  const serverCost = input.cost?.total_cost_usd;
-  let costSource: StatuslineData["cost"]["source"] = null;
-  let costTotal: number | null = null;
-  if (typeof serverCost === "number") {
-    costSource = "server";
-    costTotal = serverCost;
-  } else {
-    const pricing = pricingFor(input.model?.id);
-    if (pricing && usage) {
-      // Same formula the cost segment uses (USD per 1M tokens).
-      const estimated =
-        ((usage.input_tokens ?? 0) / 1_000_000) * pricing.input +
-        ((usage.cache_creation_input_tokens ?? 0) / 1_000_000) *
-          pricing.cacheCreation +
-        ((usage.cache_read_input_tokens ?? 0) / 1_000_000) * pricing.cacheRead +
-        ((usage.output_tokens ?? 0) / 1_000_000) * pricing.output;
-      if (Number.isFinite(estimated) && estimated > 0) {
-        costSource = "estimated";
-        costTotal = Number(estimated.toFixed(4));
-      }
-    }
-  }
+  // Cost source: server beats local estimation. Both render paths share
+  // the single `computeCost` (cache-aware, 1M-tier-aware); the JSON path
+  // just maps the {dollars, source} result and preserves toFixed(4)
+  // rounding here at the boundary.
+  const costResult = computeCost(
+    buildCostInput(input),
+    pricingFor(input.model?.id),
+  );
+  const costSource: StatuslineData["cost"]["source"] =
+    costResult?.source ?? null;
+  const costTotal: number | null = costResult
+    ? Number(costResult.dollars.toFixed(4))
+    : null;
 
   return {
     version: meta.version,
@@ -315,7 +304,11 @@ export async function renderStatusline(
     ),
   ];
 
-  const cost = costSegment(buildCostInput(input), pricingFor(input.model?.id), glyphs);
+  const cost = costSegment(
+    buildCostInput(input),
+    pricingFor(input.model?.id),
+    glyphs,
+  );
   if (cost) line1Parts.push(cost);
 
   const sessionStr = sessionSegment(sessionElapsed, glyphs);
@@ -346,7 +339,9 @@ export async function renderStatusline(
     undefined,
     latencySummary,
   );
-  const lines: string[] = [latencyStr ? `${line1}${separator}${latencyStr}` : line1];
+  const lines: string[] = [
+    latencyStr ? `${line1}${separator}${latencyStr}` : line1,
+  ];
 
   const rateLines = renderRateLines(rateData, {
     use24h: deps.detect24Hour,
@@ -407,6 +402,8 @@ function buildCostInput(input: StatuslineInput) {
     cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
     cacheReadTokens: usage?.cache_read_input_tokens ?? 0,
     outputTokens: usage?.output_tokens ?? 0,
+    contextWindowSize: input.context_window?.context_window_size ?? undefined,
+    exceeds200k: input.exceeds_200k_tokens === true,
   };
 }
 
@@ -424,9 +421,7 @@ async function gatherRateLimits(
   // the README — most users want stdin priority because it's what the
   // active session itself sees, but power users who hit `claudeline
   // refresh` and expect numbers to update need API priority.
-  const fromStdin = deps.preferApi
-    ? null
-    : extractRateLimitsFromInput(input);
+  const fromStdin = deps.preferApi ? null : extractRateLimitsFromInput(input);
   if (fromStdin) {
     const cachedInfo = deps.cacheLoad();
     const extra = cachedInfo
@@ -480,9 +475,10 @@ async function gatherRateLimits(
   const adapted = adaptApiUsage(cached.data, deps);
   // Compute the percentile summary AFTER recording the fresh sample so
   // the badge reflects the just-observed call.
-  const latencySummary = latencyMs === undefined
-    ? undefined
-    : latencyPercentiles(deps.loadState().latencySamples);
+  const latencySummary =
+    latencyMs === undefined
+      ? undefined
+      : latencyPercentiles(deps.loadState().latencySamples);
   return {
     rateData: {
       ...adapted,
@@ -539,7 +535,10 @@ function adaptApiUsage(
 
 function adaptApiWindow(
   raw:
-    | { utilization?: number | null | undefined; resets_at?: string | null | undefined }
+    | {
+        utilization?: number | null | undefined;
+        resets_at?: string | null | undefined;
+      }
     | null
     | undefined,
 ): RateLimitWindow | undefined {
