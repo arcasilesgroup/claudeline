@@ -24,7 +24,7 @@ TypeScript, single binary, zero config.
 ## Features
 
 - **Model + context %** — colored by usage threshold (green → orange → yellow → red)
-- **Cost per session** — `💸 $X.XX` recomputed from `current_usage` tokens × the live per-provider price (OpenRouter for open/BYO models, models.dev/LiteLLM for Claude), with the server-reported `cost.total_cost_usd` as a fallback when token counts are unavailable
+- **Cost per session** — `💸 $X.XX` recomputed from `current_usage` tokens × the live per-provider price (OpenRouter for open/BYO models, models.dev/LiteLLM for Claude), with the server-reported `cost.total_cost_usd` as a fallback when token counts are unavailable. Recomputed cost is doubled for 1M-context sessions (matching Anthropic's published surcharge)
 - **Working directory + git** — branch, dirty flag, worktree marker (`⎇:branch`), optional `⚡` for `--dangerously-skip-permissions`
 - **Session duration** — elapsed since session start
 - **Effort indicator** — distinct glyphs for `max`, `xhigh`, `high`, `medium`, `low`
@@ -127,7 +127,7 @@ The first line is composed of these segments, separated by `│`:
 | Segment    | Source                                              |
 | ---------- | --------------------------------------------------- |
 | Model      | `model.display_name` from stdin                     |
-| Context %  | `context_window` (tokens / size or used_percentage) |
+| Context %  | `context_window` (tokens / size or used_percentage); empty before first API call or after `/compact` |
 | Directory  | `cwd` basename + git branch + dirty flag + worktree |
 | Cost       | `current_usage` tokens × live per-provider price for `model.id` (OpenRouter open/BYO · models.dev/LiteLLM Claude); `cost.total_cost_usd` fallback |
 | Session    | elapsed since `session.start_time`                  |
