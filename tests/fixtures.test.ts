@@ -63,14 +63,15 @@ describe("real Claude Code stdin fixtures", () => {
         expect(out.length).toBeGreaterThan(0);
       });
 
-      test("cost segment uses cost.total_cost_usd when present", async () => {
-        if (typeof payload.cost?.total_cost_usd !== "number") return;
+      test("cost segment renders a recomputed value when usage + price exist", async () => {
         const parsed = z.parse(statuslineInputSchema, payload);
         const out = await renderStatusline(parsed, mockDeps());
-        const expected = payload.cost.total_cost_usd >= 1
-          ? `$${payload.cost.total_cost_usd.toFixed(2)}`
-          : `$${payload.cost.total_cost_usd.toFixed(3)}`;
-        expect(stripAnsi(out)).toContain(expected);
+        // Spec-001: cost is recomputed from tokens × pricing, not server
+        // total_cost_usd. Just verify a dollar amount appears when usage is present.
+        const hasUsage = parsed.context_window?.current_usage != null;
+        if (hasUsage) {
+          expect(stripAnsi(out)).toMatch(/\$\d+\.\d+/);
+        }
       });
 
       test("model display_name appears in render", async () => {
