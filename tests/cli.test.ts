@@ -128,7 +128,9 @@ describe("cli", () => {
 
   test("--version works when invoked via a symlink (regression: 0.2.0 was silent)", () => {
     const fs = require("node:fs") as typeof import("node:fs");
-    const tmp = fs.mkdtempSync(join(require("node:os").tmpdir(), "cl-symlink-"));
+    const tmp = fs.mkdtempSync(
+      join(require("node:os").tmpdir(), "cl-symlink-"),
+    );
     const link = join(tmp, "claudeline");
     try {
       fs.symlinkSync(dist, link);
@@ -143,7 +145,7 @@ describe("cli", () => {
   test("CLAUDELINE_GLYPHS=plain switches glyphs to ASCII", () => {
     const r = spawnSync("node", [dist, "render"], {
       input:
-        '{"model":{"display_name":"Opus"},"cwd":"/tmp","rate_limits":{"five_hour":{"used_percentage":50,"resets_at":"2026-04-26T22:30:00Z"}}}',
+        '{"model":{"display_name":"Opus"},"cwd":"/tmp","context_window":{"context_window_size":200000,"used_percentage":50,"current_usage":{"input_tokens":1000,"output_tokens":500}},"rate_limits":{"five_hour":{"used_percentage":50,"resets_at":"2026-04-26T22:30:00Z"}}}',
       encoding: "utf-8",
       env: { ...process.env, CLAUDELINE_GLYPHS: "plain" },
     });

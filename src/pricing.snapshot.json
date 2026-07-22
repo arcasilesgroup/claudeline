@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-21",
+  "table": [
+    { "match": "opus-4", "pricing": { "input": 15, "cacheCreation": 18.75, "cacheRead": 1.5, "output": 75 } },
+    { "match": "opus-3", "pricing": { "input": 15, "cacheCreation": 18.75, "cacheRead": 1.5, "output": 75 } },
+    { "match": "sonnet-4", "pricing": { "input": 3, "cacheCreation": 3.75, "cacheRead": 0.3, "output": 15 } },
+    { "match": "sonnet-3", "pricing": { "input": 3, "cacheCreation": 3.75, "cacheRead": 0.3, "output": 15 } },
+    { "match": "haiku-3-5", "pricing": { "input": 0.8, "cacheCreation": 1, "cacheRead": 0.08, "output": 4 } },
+    { "match": "haiku-3.5", "pricing": { "input": 0.8, "cacheCreation": 1, "cacheRead": 0.08, "output": 4 } },
+    { "match": "haiku 3.5", "pricing": { "input": 0.8, "cacheCreation": 1, "cacheRead": 0.08, "output": 4 } },
+    { "match": "haiku-4", "pricing": { "input": 1, "cacheCreation": 1.25, "cacheRead": 0.1, "output": 5 } },
+    { "match": "opus", "pricing": { "input": 15, "cacheCreation": 18.75, "cacheRead": 1.5, "output": 75 } },
+    { "match": "sonnet", "pricing": { "input": 3, "cacheCreation": 3.75, "cacheRead": 0.3, "output": 15 } },
+    { "match": "haiku", "pricing": { "input": 1, "cacheCreation": 1.25, "cacheRead": 0.1, "output": 5 } },
+    { "match": "gpt-4o", "pricing": { "input": 2.5, "cacheCreation": 0, "cacheRead": 1.25, "output": 10 } },
+    { "match": "llama3", "pricing": { "input": 0.2, "cacheCreation": 0, "cacheRead": 0, "output": 0.2 } },
+    { "match": "openrouter/", "pricing": { "input": 0, "cacheCreation": 0, "cacheRead": 0, "output": 0 } }
+  ]
+}

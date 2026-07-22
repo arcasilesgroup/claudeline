@@ -1,32 +1,28 @@
-<!-- Thanks for contributing to claudeline! -->
+## What
 
-## Summary
+<!-- Brief summary of WHAT this PR does. -->
 
-<!-- One or two sentences describing what changed and why. -->
+## Why
 
-## Linked issues
+<!-- WHY is this change needed? Link to spec if applicable. -->
 
-<!-- e.g. Closes #123 -->
+**Spec:** <!-- https://github.com/arcasilesgroup/ai-engineering/blob/main/.ai-engineering/specs/spec.md -->
 
-## Type of change
+## How
 
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing behavior to change)
-- [ ] Documentation only
-- [ ] Refactor / chore (no functional change)
+<!-- HOW does it work? Key implementation details. -->
 
-## Checklist
+## Tasks Completed
 
-- [ ] `bun test` passes locally
-- [ ] `bunx tsc --noEmit` is clean
-- [ ] I added or updated tests that fail without this change
-- [ ] I updated relevant docs (README, CHANGELOG, schemas)
-- [ ] I did not add a new dependency, **or** the dependency is justified in
-      the description below
-- [ ] I confirmed this change does not log or persist sensitive data
-      (OAuth tokens, credentials, full stdin payload)
+<!-- List issue/task IDs closed by this PR. -->
+<!-- Closes #XX, Closes #YY -->
 
-## Notes for reviewers
+## Verification
 
-<!-- Anything specific you want reviewers to focus on? -->
+- [ ] `ruff check` passes
+- [ ] `ruff format --check` passes
+- [ ] `ty check` passes
+- [ ] `uv run pytest` passes
+- [ ] `gitleaks detect` — no leaks
+- [ ] No `--no-verify` used in any git command
+- [ ] CHANGELOG.md updated (if user-facing)

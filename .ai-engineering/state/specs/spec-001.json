@@ -1,0 +1,11 @@
+{
+  "branch": "draft/claudeline-pricing-cc-features",
+  "created": "2026-07-21T12:51:57.900651+00:00",
+  "extra": {},
+  "pr": "39",
+  "shipped": "2026-07-22T10:21:32.719996+00:00",
+  "slug": "claudeline-pricing-cc-features",
+  "spec_id": "spec-001",
+  "state": "shipped",
+  "title": "Claudeline: pricing fidelity for open models + Claude Code feature parity"
+}

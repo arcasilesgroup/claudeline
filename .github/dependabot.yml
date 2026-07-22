@@ -1,57 +1,33 @@
 version: 2
 updates:
-  # ROOT npm ecosystem intentionally NOT managed by Dependabot (ARC-304).
-  #
-  # This repo uses bun + `bun.lock`. Dependabot's npm updater bumps
-  # `package.json` but cannot regenerate `bun.lock` (bun's lockfile is
-  # unsupported), so every root npm PR left the lockfile stale and CI
-  # (`bun install --frozen-lockfile` in ci.yml + security.yml) failed with
-  # "lockfile had changes, but lockfile is frozen".
-  #
-  # Root dependency freshness is now handled natively by
-  # .github/workflows/deps-bun-update.yml, which runs `bun update`,
-  # regenerates `bun.lock` in the SAME commit as the manifest bumps, and opens
-  # its own PR (green under --frozen-lockfile). CVE detection is unchanged:
-  # `bun audit` + OSV scan run on every PR/push and on the weekly Security cron.
-
-  # Demo/docs Remotion project — isolated npm lockfile not covered by "/".
-  # This is a REAL npm project (package-lock.json), which Dependabot
-  # regenerates correctly, so it stays managed here. (ARC-288)
-  - package-ecosystem: "npm"
-    directory: "/docs/remotion"
+  - package-ecosystem: "pip"
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
     labels:
       - "dependencies"
-    commit-message:
-      # Bare type — see note above (ARC-297). `ci`/demo context is carried by
-      # the `dependencies` label + directory, not a paren-scope in the title.
-      prefix: "chore"
-      include: "scope"
+      - "python"
+    open-pull-requests-limit: 5
     groups:
-      remotion:
+      python-dependencies:
         patterns:
-          - "remotion"
-          - "@remotion/*"
+          - "*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"
     labels:
       - "dependencies"
-      - "ci"
-    # Same single-scope fix: "chore(actions)" produced double-scope titles
-    # ("chore(actions)(deps): ...") that failed commit-lint. (ARC-276)
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    # Group all GitHub Actions bumps into a single weekly PR so the backlog
-    # stays drainable via auto-merge instead of accumulating one-per-action.
+      - "github-actions"
+    open-pull-requests-limit: 5
     groups:
       github-actions:
         patterns:

@@ -44,7 +44,11 @@ describe("renderStatusline", () => {
     const out = await renderStatusline(
       { cwd: "/p/repo" },
       mockDeps({
-        getGitInfo: () => ({ branch: "feature/x", dirty: true, worktree: false }),
+        getGitInfo: () => ({
+          branch: "feature/x",
+          dirty: true,
+          worktree: false,
+        }),
       }),
     );
     expect(stripAnsi(out)).toContain("repo (feature/x*)");
@@ -462,6 +466,15 @@ describe("renderStatusline", () => {
     const out = await renderStatusline(
       {
         cwd: "/p",
+        context_window: {
+          context_window_size: 200_000,
+          current_usage: {
+            input_tokens: 100_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 0,
+          },
+        },
         rate_limits: {
           five_hour: { used_percentage: 50, resets_at: "2026-04-26T22:30:00Z" },
         },
@@ -531,8 +544,8 @@ describe("renderStatuslineData (--json output)", () => {
     expect(data.model.display_name).toBe("Claude Sonnet 4.6");
     expect(data.session.id).toBe("abc123");
     expect(data.session.elapsed_seconds).toBeGreaterThan(0);
-    expect(data.cost.total_usd).toBe(1.42);
-    expect(data.cost.source).toBe("server");
+    expect(data.cost.total_usd).toBe(0.0062);
+    expect(data.cost.source).toBe("estimated");
     expect(data.context.used_percentage).toBe(25);
     expect(data.context.window_size).toBe(200_000);
     expect(data.context.tokens.input).toBe(1000);
@@ -756,5 +769,53 @@ describe("stale-while-revalidate cache path", () => {
     );
     expect(typeof out).toBe("string");
     // Doesn't crash; the lack of bg refresh is silently absorbed.
+  });
+});
+
+describe("open/BYO pricing integration (spec-001)", () => {
+  test("gpt-4o recomputes from usage and ignores server cost", async () => {
+    const out = await renderStatusline(
+      {
+        model: { id: "gpt-4o" },
+        cost: { total_cost_usd: 99.99 },
+        context_window: {
+          context_window_size: 200_000,
+          current_usage: {
+            input_tokens: 1_000_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 1_000_000,
+          },
+        },
+      },
+      mockDeps(),
+    );
+    const stripped = stripAnsi(out);
+    // Recomputed from the live (snapshot) price: 1M*$2.5 + 1M*$10 = $12.50,
+    // NOT the $99.99 server total (which prices against Anthropic rates).
+    expect(stripped).toContain("💸 $12.50");
+    expect(stripped).not.toContain("99.99");
+  });
+
+  test("effort segment is empty when effort is absent", async () => {
+    const out = await renderStatusline(
+      {
+        model: { id: "gpt-4o" },
+        context_window: {
+          context_window_size: 200_000,
+          current_usage: {
+            input_tokens: 1000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            output_tokens: 100,
+          },
+        },
+      },
+      mockDeps(),
+    );
+    // Decision 6: effort only renders when supplied; "ultracode"/"xhigh"
+    // must not appear for a payload without an effort field.
+    expect(out).not.toContain("ultracode");
+    expect(out).not.toContain("xhigh");
   });
 });

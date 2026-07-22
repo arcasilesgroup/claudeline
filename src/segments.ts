@@ -4,7 +4,8 @@ import type { GlyphSet } from "./glyphs.js";
 // Strip C0/C1 control characters from any text we reflect from stdin
 // (model.display_name, cwd, gitBranch). Defends against escape-sequence
 // injection (terminal title spoofing, OSC-8 hyperlinks, screen wipes).
-const stripControl = (s: string): string => s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+const stripControl = (s: string): string =>
+  s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 
 // Splits on both POSIX `/` and Windows `\` so the segment renders
 // the basename regardless of the host that produced the cwd string.
@@ -15,7 +16,10 @@ function basenameCrossPlatform(p: string): string {
 }
 
 export function modelSegment(displayName: string | null | undefined): string {
-  const safe = displayName && displayName.trim() !== "" ? stripControl(displayName) : "Claude";
+  const safe =
+    displayName && displayName.trim() !== ""
+      ? stripControl(displayName)
+      : "Claude";
   return paint(safe, palette.blue);
 }
 
@@ -25,9 +29,18 @@ export interface ContextInput {
   cacheCreationTokens: number;
   cacheReadTokens: number;
   usedPercentage?: number;
+  // Whether the payload carried `current_usage` this turn. When false
+  // (pre-first-call, post-`/compact`) there is nothing to render and the
+  // segment stays empty rather than a misleading " 0%".
+  hasUsage?: boolean;
 }
 
 export function contextSegment(input: ContextInput, glyphs: GlyphSet): string {
+  // Nothing to show before the first API call or after /compact: no usage
+  // and no context_window percentage. Stay empty (no misleading " 0%").
+  if (input.hasUsage !== true && typeof input.usedPercentage !== "number") {
+    return "";
+  }
   let pct: number;
   if (typeof input.usedPercentage === "number") {
     pct = Math.round(input.usedPercentage);
@@ -85,7 +98,10 @@ export function sessionSegment(
 }
 
 interface EffortConfig {
-  slot: keyof Pick<GlyphSet, "effortMax" | "effortHigh" | "effortMedium" | "effortLow">;
+  slot: keyof Pick<
+    GlyphSet,
+    "effortMax" | "effortHigh" | "effortMedium" | "effortLow"
+  >;
   emphasis: "magenta" | "dim";
 }
 
@@ -121,16 +137,82 @@ export function thinkingSegment(
 }
 
 export interface CostInput {
-  // Authoritative cumulative session cost from Claude Code, when present.
-  // Always preferred — it's the server-side number that Anthropic uses
-  // for billing. Falling back to `current_usage` × pricing under-reports
-  // because `current_usage` is the last-turn delta, not the session sum.
+  // Server-reported cost from Claude Code (`cost.total_cost_usd`). Demoted
+  // to a FALLBACK (spec-001 Decision 3): used only when `current_usage` is
+  // null (pre-first-call, post-`/compact`) AND the model is Anthropic. For
+  // non-Anthropic models it prices against Anthropic rates and is ignored.
   totalCostUsd?: number | null | undefined;
   modelId: string | null | undefined;
   inputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
   outputTokens: number;
+  // Whether the payload carried `current_usage` this turn. When true, the
+  // recomputed token cost is the primary display; when false, the server
+  // cost is the only fallback. Distinguishes absent usage from zero tokens.
+  hasUsage?: boolean | undefined;
+  // Provider tag from the resolver. When false (non-Anthropic), the server
+  // cost is never used — only the locally recomputed cost is trustworthy.
+  isAnthropic?: boolean | undefined;
+  // Reported context window for this turn. When 1_000_000 the recomputed
+  // (estimated) cost gets the long-context surcharge; the 200_000 default
+  // is priced at base rates.
+  contextWindowSize?: number | undefined;
+  // Top-level `exceeds_200k_tokens` flag — an alternate 1M-tier signal
+  // used when the window size itself isn't reported.
+  exceeds200k?: boolean | undefined;
+}
+
+// Long-context (1M) surcharge applied to the LOCALLY-RECOMPUTED cost only.
+// Anthropic prices prompts beyond the 200K tier at a premium (Sonnet 4:
+// input 2× at $6/MTok). sub-003 wires the tier hook with a single flat
+// constant; per-field long-context rates belong to the pricing-source
+// sub-spec. Server-reported cost is authoritative and never re-surcharged.
+export const LONG_CONTEXT_MULTIPLIER = 2;
+
+export interface CostResult {
+  dollars: number;
+  // "server" when Claude Code provided cost.total_cost_usd directly;
+  // "estimated" when computed from token counts × pricing.
+  source: "server" | "estimated";
+}
+
+// Single source of cost math shared by the ANSI (`costSegment`) and JSON
+// (`renderStatuslineData`) render paths (§10.4 DRY). Cache read/write are
+// already distinct line items on the price row; the 1M-tier surcharge is
+// applied to the estimated branch only.
+export function computeCost(
+  input: CostInput,
+  price: ModelPricing | undefined,
+): CostResult | null {
+  // Recompute from the reported tokens is PRIMARY (spec-001 Decision 3):
+  // the tokens the provider actually reported × the live price for the
+  // running model. Only attempted when usage was present this turn.
+  if (price && input.hasUsage === true) {
+    let dollars =
+      (input.inputTokens / 1_000_000) * price.input +
+      (input.cacheCreationTokens / 1_000_000) * price.cacheCreation +
+      (input.cacheReadTokens / 1_000_000) * price.cacheRead +
+      (input.outputTokens / 1_000_000) * price.output;
+    if (input.contextWindowSize === 1_000_000 || input.exceeds200k === true) {
+      dollars *= LONG_CONTEXT_MULTIPLIER;
+    }
+    if (Number.isFinite(dollars) && dollars > 0) {
+      return { dollars, source: "estimated" };
+    }
+  }
+  // Server cost is the FALLBACK, used only when usage is null (pre-first-
+  // call, post-`/compact`) and the model is Anthropic. Non-Anthropic server
+  // cost prices against Anthropic rates, so it is never used.
+  if (
+    input.hasUsage !== true &&
+    input.isAnthropic !== false &&
+    typeof input.totalCostUsd === "number" &&
+    input.totalCostUsd >= 0
+  ) {
+    return { dollars: input.totalCostUsd, source: "server" };
+  }
+  return null;
 }
 
 export function costSegment(
@@ -138,20 +220,9 @@ export function costSegment(
   pricePerMillionTokens: ModelPricing | undefined,
   glyphs: GlyphSet,
 ): string {
-  let dollars: number;
-  if (typeof input.totalCostUsd === "number" && input.totalCostUsd >= 0) {
-    dollars = input.totalCostUsd;
-  } else if (pricePerMillionTokens) {
-    dollars =
-      (input.inputTokens / 1_000_000) * pricePerMillionTokens.input +
-      (input.cacheCreationTokens / 1_000_000) *
-        pricePerMillionTokens.cacheCreation +
-      (input.cacheReadTokens / 1_000_000) * pricePerMillionTokens.cacheRead +
-      (input.outputTokens / 1_000_000) * pricePerMillionTokens.output;
-  } else {
-    return "";
-  }
-  if (dollars <= 0) return "";
+  const result = computeCost(input, pricePerMillionTokens);
+  if (!result || result.dollars <= 0) return "";
+  const dollars = result.dollars;
   const formatted = dollars >= 1 ? dollars.toFixed(2) : dollars.toFixed(3);
   return `${glyphs.cost} ${palette.yellow}$${formatted}${RESET}`;
 }

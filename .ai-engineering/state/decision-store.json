@@ -1,0 +1,9 @@
+{
+  "decisions": [],
+  "schemaVersion": "1.1",
+  "updateMetadata": {
+    "expectedGain": "consistent framework state tracking",
+    "potentialImpact": "framework tools depend on this file",
+    "rationale": "initialize decision store"
+  }
+}

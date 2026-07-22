@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Live, multi-provider pricing replaces the static Claude-only table.**
+  Cost is now recomputed from `context_window.current_usage.*` tokens against a
+  live price registry — OpenRouter for open/BYO models and models.dev/LiteLLM
+  for Claude on direct billing — with a bundled snapshot as fallback. Unknown
+  or non-Anthropic models now show a recomputed cost (or an explicit "no price")
+  instead of silently hiding; Anthropic prices are sourced live rather than
+  frozen at the April 2026 snapshot. `cost.total_cost_usd` is now a fallback,
+  not the primary source. No compatibility shim (CONSTITUTION §3): the prior
+  behavior of hiding cost for unknown models is removed.
+- **Long-context (1M) pricing tier.** Recomputed cost for Anthropic models
+  is now doubled when the context window is 1,000,000 tokens or the session
+  exceeds 200K tokens, matching Anthropic's published 1M-tier surcharge.
+  Server-reported cost is never re-surcharged (it is already authoritative).
+- **Effort level normalization.** The `ultracode` effort alias is removed;
+  `ultracode` now maps to `max` like any other unrecognized level. Users who
+  had `CLAUDE_CODE_EFFORT_LEVEL=ultracode` in their environment will see no
+  visual change — the `max` glyph (◉) is the same.
+
+### Fixed
+
+- **Context percentage hidden before first API call.** The context segment
+  no longer shows a misleading "0%" before the first usage data arrives or
+  after a `/compact` reset. The segment stays empty until there is
+  meaningful data to display.
+
 ### Security
 
 - **TOCTOU-hardened config + session-log initialisation (CWE-367).**

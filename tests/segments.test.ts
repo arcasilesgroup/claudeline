@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { palette, RESET, style } from "../src/ansi.js";
 import { glyphsFor } from "../src/glyphs.js";
 import {
+  LONG_CONTEXT_MULTIPLIER,
+  computeCost,
   contextSegment,
   costSegment,
   directorySegment,
@@ -37,6 +39,7 @@ describe("contextSegment", () => {
     const out = contextSegment(
       {
         windowSize: 200_000,
+        hasUsage: true,
         inputTokens: 50_000,
         cacheCreationTokens: 0,
         cacheReadTokens: 50_000,
@@ -64,6 +67,7 @@ describe("contextSegment", () => {
     const out = contextSegment(
       {
         windowSize: 0,
+        hasUsage: true,
         inputTokens: 100,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -78,6 +82,7 @@ describe("contextSegment", () => {
       contextSegment(
         {
           windowSize: 100,
+          hasUsage: true,
           inputTokens: 95,
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
@@ -91,6 +96,7 @@ describe("contextSegment", () => {
     const out = contextSegment(
       {
         windowSize: 100,
+        hasUsage: true,
         inputTokens: 50,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -103,9 +109,9 @@ describe("contextSegment", () => {
 
 describe("directorySegment", () => {
   test("renders basename", () => {
-    expect(
-      stripAnsi(directorySegment({ cwd: "/foo/bar/baz" }, emoji)),
-    ).toBe("baz");
+    expect(stripAnsi(directorySegment({ cwd: "/foo/bar/baz" }, emoji))).toBe(
+      "baz",
+    );
   });
 
   test("includes branch and dirty flag", () => {
@@ -140,23 +146,18 @@ describe("directorySegment", () => {
 
   test("Windows backslash path uses last segment", () => {
     expect(
-      stripAnsi(
-        directorySegment({ cwd: "C:\\Users\\x\\repo" }, emoji),
-      ),
+      stripAnsi(directorySegment({ cwd: "C:\\Users\\x\\repo" }, emoji)),
     ).toBe("repo");
   });
 
   test("trailing slash trimmed", () => {
-    expect(
-      stripAnsi(directorySegment({ cwd: "/foo/bar/" }, emoji)),
-    ).toBe("bar");
+    expect(stripAnsi(directorySegment({ cwd: "/foo/bar/" }, emoji))).toBe(
+      "bar",
+    );
   });
 
   test("strips ANSI/control characters from cwd", () => {
-    const out = directorySegment(
-      { cwd: "/foo/\x1b]0;PWNED\x07bar" },
-      emoji,
-    );
+    const out = directorySegment({ cwd: "/foo/\x1b]0;PWNED\x07bar" }, emoji);
     const stripped = stripAnsi(out);
     expect(stripped).not.toContain("\x07");
     expect(stripped).not.toContain("\x1b");
@@ -220,6 +221,12 @@ describe("effortSegment", () => {
 
   test("xhigh uses ◉ magenta", () => {
     expect(stripAnsi(effortSegment("xhigh", emoji))).toBe("◉ xhigh");
+  });
+
+  test("ultra is not special-cased; falls back like any unknown level", () => {
+    // Decision 6: no special-casing of "ultracode"; ultracode surfaces as
+    // xhigh. An unrecognized level simply falls back, it is never relabelled.
+    expect(stripAnsi(effortSegment("ultra", emoji))).toBe("◑ ultra");
   });
 
   test("high uses ● magenta", () => {
@@ -297,6 +304,7 @@ describe("costSegment", () => {
     const out = costSegment(
       {
         modelId: "claude-sonnet",
+        hasUsage: true,
         inputTokens: 500_000,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -313,6 +321,7 @@ describe("costSegment", () => {
     const out = costSegment(
       {
         modelId: "claude-sonnet",
+        hasUsage: true,
         inputTokens: 1000,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -343,26 +352,33 @@ describe("costSegment", () => {
     ).toBe("");
   });
 
-  test("prefers totalCostUsd over local computation", () => {
+  test("recompute from usage wins over server cost when usage present", () => {
+    // spec-001 Decision 3: current_usage × price is primary; the server
+    // total is not used when usage is present.
     const out = costSegment(
       {
         totalCostUsd: 225.7886,
         modelId: "claude-sonnet",
-        inputTokens: 1000,
+        hasUsage: true,
+        isAnthropic: true,
+        inputTokens: 500_000,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
-        outputTokens: 100,
+        outputTokens: 50_000,
       },
       sonnetPricing,
       emoji,
     );
-    expect(stripAnsi(out)).toBe("💸 $225.79");
+    // 0.5M*$3 + 0.05M*$15 = $2.25 (recompute), not the $225.79 server total
+    expect(stripAnsi(out)).toBe("💸 $2.25");
   });
 
-  test("falls back to local pricing when totalCostUsd absent", () => {
+  test("recomputes from usage when totalCostUsd absent", () => {
     const out = costSegment(
       {
         modelId: "claude-sonnet",
+        hasUsage: true,
+        isAnthropic: true,
         inputTokens: 500_000,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -375,11 +391,13 @@ describe("costSegment", () => {
     expect(stripAnsi(out)).toBe("💸 $2.25");
   });
 
-  test("renders even when no pricing if totalCostUsd is supplied", () => {
+  test("uses server cost as fallback when usage is null (Anthropic)", () => {
     const out = costSegment(
       {
         totalCostUsd: 10.5,
-        modelId: "unknown-model",
+        modelId: "claude-sonnet",
+        hasUsage: false,
+        isAnthropic: true,
         inputTokens: 0,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
@@ -389,6 +407,136 @@ describe("costSegment", () => {
       emoji,
     );
     expect(stripAnsi(out)).toBe("💸 $10.50");
+  });
+
+  test("ignores server cost for non-Anthropic models", () => {
+    // Non-Anthropic total_cost_usd prices against Anthropic rates -> wrong.
+    const out = costSegment(
+      {
+        totalCostUsd: 10.5,
+        modelId: "gpt-4o",
+        hasUsage: false,
+        isAnthropic: false,
+        inputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+      },
+      undefined,
+      emoji,
+    );
+    expect(out).toBe("");
+  });
+});
+
+describe("computeCost", () => {
+  const price = {
+    input: 3,
+    cacheCreation: 3.75,
+    cacheRead: 0.3,
+    output: 15,
+  };
+
+  const base = {
+    modelId: "x",
+    hasUsage: true,
+    inputTokens: 1_000_000,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    outputTokens: 0,
+  };
+
+  test("no surcharge at the 200k default context", () => {
+    expect(computeCost({ ...base, contextWindowSize: 200_000 }, price)).toEqual(
+      {
+        dollars: 3,
+        source: "estimated",
+      },
+    );
+  });
+
+  test("applies the 1M-context surcharge at 1_000_000", () => {
+    const result = computeCost(
+      { ...base, contextWindowSize: 1_000_000 },
+      price,
+    );
+    expect(result?.dollars).toBeGreaterThan(3);
+    expect(result).toEqual({
+      dollars: 3 * LONG_CONTEXT_MULTIPLIER,
+      source: "estimated",
+    });
+  });
+
+  test("applies the surcharge when exceeds200k is true (window absent)", () => {
+    const result = computeCost({ ...base, exceeds200k: true }, price);
+    expect(result).toEqual({
+      dollars: 3 * LONG_CONTEXT_MULTIPLIER,
+      source: "estimated",
+    });
+  });
+
+  test("recompute wins over server cost even at 1M tier", () => {
+    expect(
+      computeCost(
+        { ...base, totalCostUsd: 10, contextWindowSize: 1_000_000 },
+        price,
+      ),
+    ).toEqual({ dollars: 3 * LONG_CONTEXT_MULTIPLIER, source: "estimated" });
+  });
+
+  test("server cost used as fallback only for Anthropic with null usage", () => {
+    expect(
+      computeCost(
+        {
+          modelId: "claude-opus-4-7",
+          hasUsage: false,
+          isAnthropic: true,
+          inputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          totalCostUsd: 10,
+        },
+        price,
+      ),
+    ).toEqual({ dollars: 10, source: "server" });
+  });
+
+  test("non-Anthropic server cost is never used", () => {
+    expect(
+      computeCost(
+        {
+          modelId: "gpt-4o",
+          hasUsage: false,
+          isAnthropic: false,
+          inputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          totalCostUsd: 10,
+        },
+        price,
+      ),
+    ).toBeNull();
+  });
+
+  test("returns null with no price and no server cost", () => {
+    expect(computeCost(base, undefined)).toBeNull();
+  });
+
+  test("returns null when the estimate is zero", () => {
+    expect(
+      computeCost(
+        {
+          modelId: "x",
+          inputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+        },
+        price,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -413,7 +561,8 @@ describe("latencySegment", () => {
     expect(stripAnsi(latencySegment(2000, plain))).toBe("lat: 2000ms");
   });
 
-  test("renders at exactly 1000ms (boundary inclusive)", () => {  // anchor
+  test("renders at exactly 1000ms (boundary inclusive)", () => {
+    // anchor
     expect(stripAnsi(latencySegment(1000, emoji))).toBe("🐢 1000ms");
   });
 
@@ -433,7 +582,9 @@ describe("latencySegment", () => {
 
   test("plain mode renders summary parenthetical", () => {
     expect(
-      stripAnsi(latencySegment(2000, plain, undefined, { p50: 700, p99: 2500 })),
+      stripAnsi(
+        latencySegment(2000, plain, undefined, { p50: 700, p99: 2500 }),
+      ),
     ).toBe("lat: 2000ms (p50:700/p99:2500)");
   });
 
@@ -481,6 +632,7 @@ describe("RESET handling", () => {
       contextSegment(
         {
           windowSize: 1000,
+          hasUsage: true,
           inputTokens: 100,
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
