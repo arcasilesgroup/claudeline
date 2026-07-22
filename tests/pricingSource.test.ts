@@ -6,6 +6,7 @@ import snapshot from "../src/pricing.snapshot.json" with { type: "json" };
 import {
   loadPricingCache,
   refreshPricingCache,
+  resolveContextWindow,
   resolvePrice,
 } from "../src/pricingSource.js";
 
@@ -66,6 +67,32 @@ describe("pricing.snapshot.json integrity", () => {
     expect(rowFor("llama3")).toBeDefined();
     expect(rowFor("openrouter/")).toBeDefined();
   });
+
+  test("seeds popular open model rows with valid pricing structure (spec-002)", () => {
+    // Structural test only — prices change frequently, exact values are
+    // tested by the live fetch refreshPricingCache tests, not here.
+    const popular = [
+      "xiaomi/mimo-v2.5",
+      "deepseek/deepseek-v4-flash",
+      "deepseek/deepseek-v4-pro",
+      "tencent/hy3",
+      "z-ai/glm-5.2",
+      "moonshotai/kimi-k3",
+      "x-ai/grok-4.5",
+      "qwen/qwen3.7-max",
+      "moonshotai/kimi-k2.7-code",
+      "minimax/minimax-m3",
+      "qwen/qwen3.7-plus",
+      "qwen/qwen3.6-plus",
+      "google/gemma-4",
+    ];
+    for (const id of popular) {
+      const row = rowFor(id);
+      expect(row).toBeDefined();
+      expect(row!.input).toBeGreaterThanOrEqual(0);
+      expect(row!.output).toBeGreaterThanOrEqual(0);
+    }
+  });
 });
 
 // T-0.3/T-0.4 — resolvePrice contract over the bundled snapshot (offline).
@@ -118,6 +145,51 @@ describe("resolvePrice (bundled/offline)", () => {
     const missing = join(tmpdir(), "claudeline-nope", "price-cache.json");
     await expect(loadPricingCache(missing)).resolves.toBeUndefined();
     expect(resolvePrice("claude-opus-4-7")?.pricing.input).toBe(15);
+  });
+});
+
+describe("resolveContextWindow (bundled/offline)", () => {
+  test("returns context window for known open model", () => {
+    const ctx = resolveContextWindow("gpt-4o");
+    expect(ctx).toBe(128_000);
+  });
+
+  test("fuzzy matches openrouter model ids", () => {
+    const ctx = resolveContextWindow("openrouter/meta-llama/llama-3-8b");
+    expect(ctx).toBe(128_000);
+  });
+
+  test("returns undefined for unknown model", () => {
+    expect(resolveContextWindow("totally-unknown-xyz")).toBeUndefined();
+  });
+
+  test("returns undefined for null/undefined input", () => {
+    expect(resolveContextWindow(null)).toBeUndefined();
+    expect(resolveContextWindow(undefined)).toBeUndefined();
+  });
+
+  test("resolves context windows for popular open models (snapshot v2)", () => {
+    // Structural test — context windows can change with model updates.
+    // Exact values are verified by the live fetch path, not here.
+    const popular = [
+      "xiaomi/mimo-v2.5",
+      "deepseek/deepseek-v4-flash",
+      "deepseek/deepseek-v4-pro",
+      "tencent/hy3",
+      "z-ai/glm-5.2",
+      "moonshotai/kimi-k3",
+      "x-ai/grok-4.5",
+      "qwen/qwen3.7-max",
+      "moonshotai/kimi-k2.7-code",
+      "minimax/minimax-m3",
+      "qwen/qwen3.7-plus",
+      "qwen/qwen3.6-plus",
+      "google/gemma-4",
+    ];
+    for (const id of popular) {
+      const ctx = resolveContextWindow(id);
+      expect(ctx).toBeGreaterThan(0);
+    }
   });
 });
 

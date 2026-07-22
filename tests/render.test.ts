@@ -580,6 +580,27 @@ describe("renderStatuslineData (--json output)", () => {
     expect(data.cost.total_usd).toBeGreaterThan(0);
   });
 
+  test("uses resolved context window for open model when stdin omits size", async () => {
+    const data = await renderStatuslineData(
+      {
+        model: {
+          id: "openrouter/meta-llama/llama-3-8b",
+          display_name: "Llama 3 8B",
+        },
+        cwd: "/tmp",
+        context_window: {
+          current_usage: { input_tokens: 50_000, output_tokens: 1000 },
+          // No context_window_size — should resolve from live source
+        },
+      },
+      mockDeps(),
+      { version: "9.9.9" },
+    );
+    // Llama 3 = 128K; 50K/128K ≈ 39%
+    expect(data.context.window_size).toBe(128_000);
+    expect(data.context.used_percentage).toBeNull(); // no server %; computed from tokens
+  });
+
   test("rate_limits.five_hour comes from stdin payload when present", async () => {
     const data = await renderStatuslineData(
       {

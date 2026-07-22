@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Context window resolution for open/BYO models.** The context percentage
+  segment now resolves accurate context window sizes for open models from
+  live sources (OpenRouter, models.dev, LiteLLM) instead of falling back to a
+  hardcoded 200K. A 128K Llama 3 at 50K tokens now correctly shows 39%
+  instead of 25%. Bundled snapshot includes 27 context window seeds for
+  popular models (DeepSeek V4, GLM 5.2, Kimi K3, Grok 4.5, Qwen 3.7,
+  MiniMax M3, MiMo V2.5, Gemma 4, etc.). Anthropic models unaffected.
 - **Live, multi-provider pricing replaces the static Claude-only table.**
   Cost is now recomputed from `context_window.current_usage.*` tokens against a
   live price registry — OpenRouter for open/BYO models and models.dev/LiteLLM
