@@ -41,7 +41,9 @@ import re
 import shlex
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 

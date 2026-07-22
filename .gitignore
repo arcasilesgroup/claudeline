@@ -8,7 +8,18 @@ coverage/
 .idea/
 .vscode/
 
-# AI engineering — session state and transient artifacts
-.ai-engineering/state/
-.ai-engineering/specs/archive/
+# Bun build artifacts
 *.bun-build
+
+# ai-engineering transient state (mirrors upstream repo patterns)
+.ai-engineering/state/framework-events.ndjson
+.ai-engineering/state/framework-capabilities.json
+.ai-engineering/state/gate-findings.json
+.ai-engineering/state/observation-events.ndjson
+.ai-engineering/state/install-state.json
+.ai-engineering/state/ownership-map.json
+.ai-engineering/state/runtime/
+.ai-engineering/runtime/
+.ai-engineering/cache/
+.ai-engineering/runs/
+.ai-engineering/notes/
