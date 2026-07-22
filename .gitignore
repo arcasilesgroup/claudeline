@@ -7,3 +7,8 @@ dist/
 coverage/
 .idea/
 .vscode/
+
+# AI engineering — session state and transient artifacts
+.ai-engineering/state/
+.ai-engineering/specs/archive/
+*.bun-build
