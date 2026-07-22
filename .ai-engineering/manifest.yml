@@ -1,0 +1,112 @@
+# ai-engineering manifest
+#
+# This file holds USER configuration only. Framework-managed sections
+# (skills, agents, control_plane, ownership.root_entry_points, prereqs,
+# required_tools, tooling, hot_path_slos, session.context_files,
+# contexts.precedence) are injected by the loader from
+# `ai_engineering.config.framework_defaults`. Declare those sections
+# here only when overriding a default.
+
+schema_version: "2.0"
+framework_version: "0.12.3"
+name: claudeline
+version: "1.0.0"
+
+# Providers
+# spec-128 D-128-09/D-128-11: stacks accepts bare-language tokens
+# matching .ai-engineering/overrides/<stack>/ directory names.
+# Supported: python, typescript, go, rust, swift, csharp, kotlin, etc.
+providers:
+  vcs: github
+  stacks:
+  - typescript
+
+# Surfaces — unified AI Provider + IDE Integration axis (spec-133 D-133-16).
+# Closed enum of 6: claude-code, codex, github-copilot,
+# opencode, cursor, antigravity. The first entry is the implicit primary.
+surfaces:
+  enabled:
+  - claude-code
+
+# Artifact feeds — configure your private feed in pyproject.toml [tool.uv.index]
+# See the commented section in pyproject.toml for instructions.
+artifact_feeds:
+  python: pyproject.toml
+
+# Work items — board/issue tracker integration.
+# Run `ai-eng board configure` to populate provider-specific details
+# (azure_devops.area_path, github.team_label, state mappings,
+# custom fields, hierarchy, etc.).
+work_items:
+  provider: github # 'github' or 'azure_devops'
+
+# Quality gates
+quality:
+  coverage: 80
+  duplication: 3
+  cyclomatic: 10
+  cognitive: 15
+
+# Gate execution mode (spec-105 D-105-02).
+# - regulated (default): runs Tier 0 + Tier 1 + Tier 2 (full surface).
+# - prototyping: skips Tier 2 governance checks for fast iteration.
+gates:
+  mode: regulated
+
+# Documentation auto-update
+# readme: true — recursively scans ALL README*.md files and updates
+#   each in context of its directory.
+# changelog: true — keeps CHANGELOG.md current with each PR.
+# solution_intent: true — syncs .ai-engineering/solution-intent.md on architecture changes.
+documentation:
+  auto_update:
+    readme: true
+    changelog: true
+    solution_intent: true
+
+# CI/CD standards
+# Set standards_url to your team's CI/CD documentation.
+# /ai-pipeline reads this URL to generate compliant pipelines.
+cicd:
+  standards_url:
+
+# Telemetry
+telemetry:
+  consent: strict-opt-in
+  default: disabled
+
+# spec-137 D-137-01 -- Event Relevance Discipline.
+# Manifest-driven relevance contract enforced at the writer boundary.
+# Empty kind_allowlist means "no restriction". Operators shrink the
+# list to silence categories. Severity floors are per-kind; failure
+# outcomes always emit regardless of the floor.
+audit_policy:
+  kind_allowlist:
+  - skill_invoked
+  - agent_dispatched
+  - context_load
+  - ide_hook
+  - framework_error
+  - framework_operation
+  - git_hook
+  - control_outcome
+  - task_trace
+  - memory_event
+  - eval_run
+  - retention_applied
+  - policy_decision
+  severity_floor:
+    default: S1
+    framework_operation: S2
+    ide_hook: S2
+    framework_error: S0
+  sampling:
+    policy_decision_allow: 0.10
+  failure_emission: always
+
+# Spec lifecycle retention + archival knobs (spec-153 D-153-08).
+# Makes spec-retention windows SSOT config rather than hardcoded constants.
+lifecycle:
+  draft_ttl_days: 30        # DRAFT sidecars older than this sweep to ABANDONED
+  archive_layout: per-spec-dir  # archive/spec-NNN-<slug>/{spec.md,plan.md}
+  reap_orphans: true        # sweep stray spec-*.md from specs/ root
