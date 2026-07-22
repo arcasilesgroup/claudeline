@@ -6,6 +6,7 @@ import snapshot from "../src/pricing.snapshot.json" with { type: "json" };
 import {
   loadPricingCache,
   refreshPricingCache,
+  resolveContextWindow,
   resolvePrice,
 } from "../src/pricingSource.js";
 
@@ -118,6 +119,27 @@ describe("resolvePrice (bundled/offline)", () => {
     const missing = join(tmpdir(), "claudeline-nope", "price-cache.json");
     await expect(loadPricingCache(missing)).resolves.toBeUndefined();
     expect(resolvePrice("claude-opus-4-7")?.pricing.input).toBe(15);
+  });
+});
+
+describe("resolveContextWindow (bundled/offline)", () => {
+  test("returns context window for known open model", () => {
+    const ctx = resolveContextWindow("gpt-4o");
+    expect(ctx).toBe(128_000);
+  });
+
+  test("fuzzy matches openrouter model ids", () => {
+    const ctx = resolveContextWindow("openrouter/meta-llama/llama-3-8b");
+    expect(ctx).toBe(128_000);
+  });
+
+  test("returns undefined for unknown model", () => {
+    expect(resolveContextWindow("totally-unknown-xyz")).toBeUndefined();
+  });
+
+  test("returns undefined for null/undefined input", () => {
+    expect(resolveContextWindow(null)).toBeUndefined();
+    expect(resolveContextWindow(undefined)).toBeUndefined();
   });
 });
 

@@ -16,5 +16,18 @@
     { "match": "gpt-4o", "pricing": { "input": 2.5, "cacheCreation": 0, "cacheRead": 1.25, "output": 10 } },
     { "match": "llama3", "pricing": { "input": 0.2, "cacheCreation": 0, "cacheRead": 0, "output": 0.2 } },
     { "match": "openrouter/", "pricing": { "input": 0, "cacheCreation": 0, "cacheRead": 0, "output": 0 } }
+  ],
+  "contextWindows": [
+    { "match": "gpt-4o", "contextWindow": 128000 },
+    { "match": "llama3", "contextWindow": 128000 },
+    { "match": "llama-3", "contextWindow": 128000 },
+    { "match": "mistral", "contextWindow": 32000 },
+    { "match": "mixtral", "contextWindow": 32000 },
+    { "match": "qwen", "contextWindow": 128000 },
+    { "match": "gemma", "contextWindow": 8192 },
+    { "match": "claude", "contextWindow": 200000 },
+    { "match": "opus", "contextWindow": 200000 },
+    { "match": "sonnet", "contextWindow": 200000 },
+    { "match": "haiku", "contextWindow": 200000 }
   ]
 }

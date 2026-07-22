@@ -2,7 +2,7 @@ import type { FetchUsageResult } from "./api.js";
 import { RESET, style } from "./ansi.js";
 import type { GitInfo } from "./git.js";
 import type { GlyphSet } from "./glyphs.js";
-import { resolvePrice } from "./pricingSource.js";
+import { resolveContextWindow, resolvePrice } from "./pricingSource.js";
 import type { Settings, StatuslineInput, UsageApiResponse } from "./schemas.js";
 import {
   type LatencySummary,
@@ -176,7 +176,9 @@ export async function renderStatuslineData(
 
   const usage = input.context_window?.current_usage;
   const windowSize =
-    input.context_window?.context_window_size ?? DEFAULT_CONTEXT_WINDOW;
+    input.context_window?.context_window_size ??
+    resolveContextWindow(input.model?.id) ??
+    DEFAULT_CONTEXT_WINDOW;
 
   const { rateData, latencyMs, latencySummary } = await gatherRateLimits(
     input,
@@ -386,7 +388,10 @@ function buildContextInput(input: StatuslineInput) {
     usedPercentage?: number;
     hasUsage?: boolean;
   } = {
-    windowSize: cw?.context_window_size ?? DEFAULT_CONTEXT_WINDOW,
+    windowSize:
+      cw?.context_window_size ??
+      resolveContextWindow(input.model?.id) ??
+      DEFAULT_CONTEXT_WINDOW,
     inputTokens: usage?.input_tokens ?? 0,
     cacheCreationTokens: usage?.cache_creation_input_tokens ?? 0,
     cacheReadTokens: usage?.cache_read_input_tokens ?? 0,

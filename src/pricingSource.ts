@@ -4,16 +4,20 @@ import { dirname, join } from "node:path";
 import snapshot from "./pricing.snapshot.json" with { type: "json" };
 import type { ModelPricing } from "./segments.js";
 
-// The single source of price truth (spec-001 sub-001). This module owns the
-// bundled snapshot, the live-fetch refresh, the local cache, and the
-// `resolvePrice` resolver. `resolvePrice` is synchronous over an already
-// loaded in-memory table so the render hot path NEVER blocks on the network.
+// The single source of model metadata truth (spec-001 sub-001, spec-002).
+// This module owns the bundled snapshot, the live-fetch refresh, the local
+// cache, and the `resolvePrice` / `resolveContextWindow` resolvers. Both
+// resolvers are synchronous over an already loaded in-memory table so the
+// render hot path NEVER blocks on the network.
 
 /** Which billing surface a model is priced against. */
 export type PriceProvider = "anthropic" | "openrouter";
 
 /** How the id matched a table row: exact id vs. substring alias. */
 export type PriceMatchType = "exact" | "fuzzy";
+
+/** Context window size (max tokens) for a model. */
+export type ContextWindowSize = number;
 
 export interface ResolvedPrice {
   pricing: ModelPricing;
@@ -26,14 +30,22 @@ interface PriceRow {
   pricing: ModelPricing;
 }
 
+interface ContextWindowRow {
+  match: string;
+  contextWindow: ContextWindowSize;
+}
+
 // Bundled seed — always present, the terminal fallback of the chain. Live
 // sources merge *in front of* these rows; the bundled rows can never be
 // evicted, so resolution keeps working fully offline.
 const BUNDLED: readonly PriceRow[] = snapshot.table;
+const BUNDLED_CTX: readonly ContextWindowRow[] = snapshot.contextWindows ?? [];
 
-// In-memory table used by `resolvePrice`. Starts as the bundled seed and is
-// replaced (never emptied) by `loadPricingCache` / `refreshPricingCache`.
+// In-memory tables used by `resolvePrice` and `resolveContextWindow`.
+// Start as the bundled seeds and are replaced (never emptied) by
+// `loadPricingCache` / `refreshPricingCache`.
 let cache: readonly PriceRow[] = BUNDLED;
+let contextCache: readonly ContextWindowRow[] = BUNDLED_CTX;
 
 function defaultCachePath(): string {
   return join(homedir(), ".claudeline", "price-cache.json");
@@ -85,6 +97,27 @@ export function resolvePrice(
 }
 
 /**
+ * Resolve a model id to its context window size. Exact-id first, then
+ * substring (fuzzy) fallback — same matching semantics as `resolvePrice`.
+ * Returns `undefined` when nothing matches, letting the caller own the
+ * fallback chain (spec-002 D-002-05).
+ */
+export function resolveContextWindow(
+  modelId: string | null | undefined,
+): ContextWindowSize | undefined {
+  if (!modelId) return undefined;
+  const id = modelId.toLowerCase();
+
+  const exact = contextCache.find((row) => row.match === id);
+  if (exact) return exact.contextWindow;
+
+  const fuzzy = contextCache.find((row) => id.includes(row.match));
+  if (fuzzy) return fuzzy.contextWindow;
+
+  return undefined;
+}
+
+/**
  * Load a previously written price cache into memory. Reads the local cache
  * file if present and merges its rows in front of the bundled seed. Never
  * throws — on any error it logs and retains the bundled table so render is
@@ -97,9 +130,16 @@ export async function loadPricingCache(
     if (!existsSync(cachePath)) return;
     const parsed = JSON.parse(readFileSync(cachePath, "utf8")) as {
       table?: PriceRow[];
+      contextWindows?: ContextWindowRow[];
     };
     if (Array.isArray(parsed.table) && parsed.table.length > 0) {
       cache = [...parsed.table, ...BUNDLED];
+    }
+    if (
+      Array.isArray(parsed.contextWindows) &&
+      parsed.contextWindows.length > 0
+    ) {
+      contextCache = [...parsed.contextWindows, ...BUNDLED_CTX];
     }
   } catch (err) {
     console.error(
@@ -115,18 +155,24 @@ async function fetchJson(url: string): Promise<unknown> {
 }
 
 // OpenRouter — open/BYO source. `pricing.prompt`/`pricing.completion` are
-// strings in USD *per token*; multiply by 1e6 for $/1M. No cache-tier split.
-async function fetchOpenRouter(): Promise<PriceRow[]> {
+// strings in USD *per token*; multiply by 1e6 for $/1M. `context_length`
+// provides the max context window for open models (spec-002).
+async function fetchOpenRouter(): Promise<{
+  priceRows: PriceRow[];
+  contextRows: ContextWindowRow[];
+}> {
   const body = (await fetchJson("https://openrouter.ai/api/v1/models")) as {
     data?: Array<{
       id?: string;
       pricing?: { prompt?: string; completion?: string };
+      context_length?: number;
     }>;
   };
-  const rows: PriceRow[] = [];
+  const priceRows: PriceRow[] = [];
+  const contextRows: ContextWindowRow[] = [];
   for (const model of body.data ?? []) {
     if (!model.id) continue;
-    rows.push({
+    priceRows.push({
       match: model.id.toLowerCase(),
       pricing: {
         input: Number(model.pricing?.prompt ?? 0) * 1e6,
@@ -135,13 +181,23 @@ async function fetchOpenRouter(): Promise<PriceRow[]> {
         output: Number(model.pricing?.completion ?? 0) * 1e6,
       },
     });
+    if (typeof model.context_length === "number" && model.context_length > 0) {
+      contextRows.push({
+        match: model.id.toLowerCase(),
+        contextWindow: model.context_length,
+      });
+    }
   }
-  return rows;
+  return { priceRows, contextRows };
 }
 
 // models.dev — Claude direct-billing source. `cost.*` values are already
 // $/1M; map cache_write -> cacheCreation, cache_read -> cacheRead.
-async function fetchModelsDev(): Promise<PriceRow[]> {
+// `context_window` / `max_input_tokens` provide context window sizes (spec-002).
+async function fetchModelsDev(): Promise<{
+  priceRows: PriceRow[];
+  contextRows: ContextWindowRow[];
+}> {
   const body = (await fetchJson("https://models.dev/api.json")) as Record<
     string,
     {
@@ -154,16 +210,19 @@ async function fetchModelsDev(): Promise<PriceRow[]> {
             cache_read?: number;
             cache_write?: number;
           };
+          context_window?: number;
+          max_input_tokens?: number;
         }
       >;
     }
   >;
-  const rows: PriceRow[] = [];
+  const priceRows: PriceRow[] = [];
+  const contextRows: ContextWindowRow[] = [];
   for (const provider of Object.values(body)) {
     for (const [id, model] of Object.entries(provider.models ?? {})) {
       const cost = model.cost;
       if (!cost) continue;
-      rows.push({
+      priceRows.push({
         match: id.toLowerCase(),
         pricing: {
           input: cost.input ?? 0,
@@ -172,14 +231,22 @@ async function fetchModelsDev(): Promise<PriceRow[]> {
           output: cost.output ?? 0,
         },
       });
+      const ctx = model.context_window ?? model.max_input_tokens;
+      if (typeof ctx === "number" && ctx > 0) {
+        contextRows.push({ match: id.toLowerCase(), contextWindow: ctx });
+      }
     }
   }
-  return rows;
+  return { priceRows, contextRows };
 }
 
 // LiteLLM — keyless fallback for both paths. All `*_cost_per_token` fields
-// are USD *per token*; multiply by 1e6 for $/1M.
-async function fetchLiteLLM(): Promise<PriceRow[]> {
+// are USD *per token*; multiply by 1e6 for $/1M. `context_window` provides
+// the max context window (spec-002).
+async function fetchLiteLLM(): Promise<{
+  priceRows: PriceRow[];
+  contextRows: ContextWindowRow[];
+}> {
   const body = (await fetchJson(
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
   )) as Record<
@@ -189,9 +256,12 @@ async function fetchLiteLLM(): Promise<PriceRow[]> {
       output_cost_per_token?: number;
       cache_read_input_token_cost?: number;
       cache_creation_input_token_cost?: number;
+      context_window?: number;
+      max_input_tokens?: number;
     }
   >;
-  const rows: PriceRow[] = [];
+  const priceRows: PriceRow[] = [];
+  const contextRows: ContextWindowRow[] = [];
   for (const [id, model] of Object.entries(body)) {
     if (typeof model !== "object" || model === null) continue;
     if (
@@ -200,7 +270,7 @@ async function fetchLiteLLM(): Promise<PriceRow[]> {
     ) {
       continue;
     }
-    rows.push({
+    priceRows.push({
       match: id.toLowerCase(),
       pricing: {
         input: (model.input_cost_per_token ?? 0) * 1e6,
@@ -209,8 +279,12 @@ async function fetchLiteLLM(): Promise<PriceRow[]> {
         output: (model.output_cost_per_token ?? 0) * 1e6,
       },
     });
+    const ctx = model.context_window ?? model.max_input_tokens;
+    if (typeof ctx === "number" && ctx > 0) {
+      contextRows.push({ match: id.toLowerCase(), contextWindow: ctx });
+    }
   }
-  return rows;
+  return { priceRows, contextRows };
 }
 
 /**
@@ -224,16 +298,24 @@ async function fetchLiteLLM(): Promise<PriceRow[]> {
 export async function refreshPricingCache(
   cachePath: string = defaultCachePath(),
 ): Promise<void> {
-  const sources: ReadonlyArray<readonly [string, () => Promise<PriceRow[]>]> = [
+  const sources: ReadonlyArray<
+    readonly [
+      string,
+      () => Promise<{ priceRows: PriceRow[]; contextRows: ContextWindowRow[] }>,
+    ]
+  > = [
     ["openrouter", fetchOpenRouter],
     ["models.dev", fetchModelsDev],
     ["litellm", fetchLiteLLM],
   ];
 
-  const fetched: PriceRow[] = [];
+  const fetchedPrices: PriceRow[] = [];
+  const fetchedCtx: ContextWindowRow[] = [];
   for (const [name, fetchSource] of sources) {
     try {
-      fetched.push(...(await fetchSource()));
+      const result = await fetchSource();
+      fetchedPrices.push(...result.priceRows);
+      fetchedCtx.push(...result.contextRows);
     } catch (err) {
       console.error(
         `claudeline: price source "${name}" unavailable (${String(err)}); trying next`,
@@ -242,8 +324,10 @@ export async function refreshPricingCache(
   }
 
   // Fetched rows take precedence; the bundled seed is always the fallback.
-  const merged: PriceRow[] = [...fetched, ...BUNDLED];
+  const merged: PriceRow[] = [...fetchedPrices, ...BUNDLED];
   cache = merged;
+  const mergedCtx: ContextWindowRow[] = [...fetchedCtx, ...BUNDLED_CTX];
+  contextCache = mergedCtx;
 
   try {
     mkdirSync(dirname(cachePath), { recursive: true });
@@ -254,6 +338,7 @@ export async function refreshPricingCache(
           version: snapshot.version,
           generatedAt: new Date().toISOString(),
           table: merged,
+          contextWindows: mergedCtx,
         },
         null,
         2,
