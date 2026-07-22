@@ -1,0 +1,11 @@
+{
+  "branch": "feat/context-window-open-models",
+  "created": "2026-07-22T10:52:20.748052+00:00",
+  "extra": {},
+  "pr": "41",
+  "shipped": "2026-07-22T11:53:07.232484+00:00",
+  "slug": "context-window-open-models",
+  "spec_id": "spec-002",
+  "state": "shipped",
+  "title": "Context window resolution for open models"
+}
