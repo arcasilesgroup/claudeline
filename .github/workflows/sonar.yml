@@ -33,7 +33,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+      - uses: step-security/harden-runner@ccd8616d44fd3846e67624a50d5aad6d37bf2d25 # v2.22.1
         with:
           egress-policy: audit
       - name: Assert SONAR_TOKEN is configured
@@ -47,7 +47,7 @@ jobs:
             echo "::error::SONAR_TOKEN is not set — SonarCloud cannot run. Add the repo secret (sonarcloud.io → My Account → Security)."
             exit 1
           fi
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.actor != 'dependabot[bot]'
         with:
           # Full history so SonarCloud can assign blame / new-code periods.
@@ -66,7 +66,7 @@ jobs:
         run: bun test --coverage --coverage-reporter=lcov
       - name: SonarCloud scan + quality gate
         if: github.actor != 'dependabot[bot]'
-        uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
